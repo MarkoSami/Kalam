@@ -5,6 +5,8 @@ import type { PeerState } from "./useWebRTC";
 type UseElevenLabsOptions = {
   replaceOutgoingTrack: (track: MediaStreamTrack) => void;
   restoreOriginalTrack: () => void;
+  broadcastAiStarted: () => void;
+  broadcastAiStopped: () => void;
   localStream: MediaStream | null;
   peers: Map<string, PeerState>;
 };
@@ -12,6 +14,8 @@ type UseElevenLabsOptions = {
 export function useElevenLabs({
   replaceOutgoingTrack,
   restoreOriginalTrack,
+  broadcastAiStarted,
+  broadcastAiStopped,
   localStream,
   peers,
 }: UseElevenLabsOptions) {
@@ -40,22 +44,20 @@ export function useElevenLabs({
       }
       const { signedUrl } = await res.json();
 
-      // Let ElevenLabs use the mic normally — no getUserMedia override
       const conversation = await Conversation.startSession({
         signedUrl,
         onStatusChange: (status) => {
-          console.log("[ElevenLabs] status:", status.status);
           setAiStatus(status.status);
         },
         onError: (error) => {
           console.error("[ElevenLabs] error:", error);
           setAiStatus("Error");
         },
-        onDisconnect: (details) => {
-          console.log("[ElevenLabs] disconnected:", details);
+        onDisconnect: () => {
           setAiActive(false);
           setAiStatus("");
           restoreOriginalTrack();
+          broadcastAiStopped();
         },
         onConnect: ({ conversationId }) => {
           console.log("[ElevenLabs] connected, id:", conversationId);
@@ -65,13 +67,11 @@ export function useElevenLabs({
       conversationRef.current = conversation;
       const voiceConv = conversation as unknown as VoiceConversation;
 
-      // After session starts, connect peer audio streams to the SDK's
-      // input AudioContext so the AI hears all participants
+      // Connect peer audio to AI input so it hears everyone
       if (voiceConv.input) {
         const inputCtx = voiceConv.input.context;
         const inputWorklet = voiceConv.input.worklet;
 
-        // Connect each peer's audio stream to the SDK's input worklet
         for (const [peerId, peer] of peers) {
           if (peer.stream) {
             try {
@@ -83,24 +83,18 @@ export function useElevenLabs({
             }
           }
         }
-        console.log(
-          `[ElevenLabs] Connected ${peerSourcesRef.current.size} peer streams to AI input`
-        );
       }
 
-      // Mix mic + AI audio into one outgoing track for peers
+      // Mix mic + AI audio into one outgoing track
       if (voiceConv.output && localStream) {
         const outCtx = new AudioContext();
         await outCtx.resume();
         outCtxRef.current = outCtx;
 
         const outDest = outCtx.createMediaStreamDestination();
-
-        // Local mic
         const micSource = outCtx.createMediaStreamSource(localStream);
         micSource.connect(outDest);
 
-        // AI audio — bridge from the SDK's output AudioContext
         const aiCaptureDest =
           voiceConv.output.context.createMediaStreamDestination();
         voiceConv.output.gain.connect(aiCaptureDest);
@@ -110,12 +104,12 @@ export function useElevenLabs({
         const mixedTrack = outDest.stream.getAudioTracks()[0];
         if (mixedTrack) {
           replaceOutgoingTrack(mixedTrack);
-          console.log("[ElevenLabs] Outgoing track replaced with mic+AI mix");
         }
       }
 
       setAiActive(true);
       setAiStatus("Connected");
+      broadcastAiStarted();
     } catch (err) {
       console.error("[ElevenLabs] Failed to start AI:", err);
       setAiStatus("Failed");
@@ -123,7 +117,15 @@ export function useElevenLabs({
     } finally {
       startingRef.current = false;
     }
-  }, [aiActive, replaceOutgoingTrack, restoreOriginalTrack, localStream, peers]);
+  }, [
+    aiActive,
+    replaceOutgoingTrack,
+    restoreOriginalTrack,
+    broadcastAiStarted,
+    broadcastAiStopped,
+    localStream,
+    peers,
+  ]);
 
   const updateMix = useCallback(
     (currentPeers: Map<string, PeerState>) => {
@@ -133,7 +135,6 @@ export function useElevenLabs({
       const inputCtx = voiceConv.input.context;
       const inputWorklet = voiceConv.input.worklet;
 
-      // Remove departed peers
       for (const [peerId, source] of peerSourcesRef.current) {
         if (!currentPeers.has(peerId)) {
           source.disconnect();
@@ -141,7 +142,6 @@ export function useElevenLabs({
         }
       }
 
-      // Add new peers
       for (const [peerId, peer] of currentPeers) {
         if (peer.stream && !peerSourcesRef.current.has(peerId)) {
           try {
@@ -169,9 +169,10 @@ export function useElevenLabs({
     outCtxRef.current = null;
 
     restoreOriginalTrack();
+    broadcastAiStopped();
     setAiActive(false);
     setAiStatus("");
-  }, [restoreOriginalTrack]);
+  }, [restoreOriginalTrack, broadcastAiStopped]);
 
   return { aiActive, aiStatus, startAi, stopAi, updateMix };
 }

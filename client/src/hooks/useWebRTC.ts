@@ -5,10 +5,29 @@ import { playJoinSound, playLeaveSound } from "@/lib/sounds";
 export type PeerState = {
   displayName: string;
   stream: MediaStream | null;
+  connectionState: string;
 };
 
 const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
 };
 
 export function useWebRTC(roomId: string, displayName: string) {
@@ -16,12 +35,18 @@ export function useWebRTC(roomId: string, displayName: string) {
   const [peers, setPeers] = useState<Map<string, PeerState>>(new Map());
   const [muted, setMuted] = useState(false);
   const [myPeerId, setMyPeerId] = useState<string | null>(null);
+  const [aiActiveInRoom, setAiActiveInRoom] = useState(false);
+  const [aiActivatedBy, setAiActivatedBy] = useState<string | null>(null);
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const makingOfferRef = useRef<Set<string>>(new Set());
   const joinedRef = useRef(false);
+  const roomIdRef = useRef(roomId);
+  const displayNameRef = useRef(displayName);
+  roomIdRef.current = roomId;
+  displayNameRef.current = displayName;
 
   const onMessage = useCallback((msg: SignalingMessage) => {
     switch (msg.type) {
@@ -43,11 +68,35 @@ export function useWebRTC(roomId: string, displayName: string) {
       case "ice-candidate":
         handleIceCandidate(msg);
         break;
+      case "ai-started":
+        setAiActiveInRoom(true);
+        setAiActivatedBy(msg.peerId as string);
+        break;
+      case "ai-stopped":
+        setAiActiveInRoom(false);
+        setAiActivatedBy(null);
+        break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { send, connected } = useSignaling({ onMessage });
+  const onReconnect = useCallback(() => {
+    // Re-join the room after WebSocket reconnects
+    console.log("[WebRTC] Reconnecting to room", roomIdRef.current);
+    joinedRef.current = false;
+    // Close stale connections
+    connectionsRef.current.forEach((pc) => pc.close());
+    connectionsRef.current.clear();
+    setPeers(new Map());
+    // Re-join
+    sendRef.current({
+      type: "join",
+      roomId: roomIdRef.current,
+      displayName: displayNameRef.current,
+    });
+  }, []);
+
+  const { send, connected } = useSignaling({ onMessage, onReconnect });
   const sendRef = useRef(send);
   sendRef.current = send;
 
@@ -71,13 +120,11 @@ export function useWebRTC(roomId: string, displayName: string) {
       })
       .then((stream) => {
         if (cancelled) {
-          // StrictMode cleanup ran before getUserMedia resolved — discard
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
         localStreamRef.current = stream;
         setLocalStream(stream);
-        console.log("[WebRTC] Got mic stream, tracks:", stream.getAudioTracks().map(t => `${t.label} (${t.readyState})`));
       })
       .catch((err) => console.error("Failed to get microphone:", err));
 
@@ -90,7 +137,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     };
   }, []);
 
-  // Join room when connected and stream ready (guard against StrictMode double-fire)
+  // Join room when connected and stream ready
   useEffect(() => {
     if (connected && localStream && !joinedRef.current) {
       joinedRef.current = true;
@@ -107,17 +154,21 @@ export function useWebRTC(roomId: string, displayName: string) {
   }, []);
 
   function createPeerConnection(peerId: string): RTCPeerConnection {
+    // Close existing connection if any
+    const existing = connectionsRef.current.get(peerId);
+    if (existing) {
+      existing.close();
+    }
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
     connectionsRef.current.set(peerId, pc);
 
-    // Add local tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current!);
       });
     }
 
-    // ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         sendRef.current({
@@ -128,7 +179,6 @@ export function useWebRTC(roomId: string, displayName: string) {
       }
     };
 
-    // Remote tracks
     pc.ontrack = (event) => {
       const [remoteStream] = event.streams;
       setPeers((prev) => {
@@ -141,11 +191,34 @@ export function useWebRTC(roomId: string, displayName: string) {
       });
     };
 
-    // Handle renegotiation
+    pc.onconnectionstatechange = () => {
+      setPeers((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(peerId);
+        if (existing) {
+          next.set(peerId, {
+            ...existing,
+            connectionState: pc.connectionState,
+          });
+        }
+        return next;
+      });
+
+      // Auto-cleanup failed connections
+      if (
+        pc.connectionState === "failed" ||
+        pc.connectionState === "closed"
+      ) {
+        console.log(`[WebRTC] Peer ${peerId} connection ${pc.connectionState}`);
+        connectionsRef.current.delete(peerId);
+      }
+    };
+
     pc.onnegotiationneeded = async () => {
       try {
         makingOfferRef.current.add(peerId);
         const offer = await pc.createOffer();
+        if (pc.signalingState !== "stable") return;
         await pc.setLocalDescription(offer);
         sendRef.current({
           type: "offer",
@@ -172,13 +245,13 @@ export function useWebRTC(roomId: string, displayName: string) {
     myPeerIdRef.current = peerId;
     setMyPeerId(peerId);
 
-    // Create connections to all existing peers (we are the newcomer, so we offer)
     for (const peer of existingPeers) {
       setPeers((prev) => {
         const next = new Map(prev);
         next.set(peer.peerId, {
           displayName: peer.displayName,
           stream: null,
+          connectionState: "new",
         });
         return next;
       });
@@ -205,13 +278,15 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     setPeers((prev) => {
       const next = new Map(prev);
-      next.set(peerId, { displayName: name, stream: null });
+      next.set(peerId, {
+        displayName: name,
+        stream: null,
+        connectionState: "new",
+      });
       return next;
     });
 
     playJoinSound();
-
-    // Don't create offer — the newcomer will offer to us
   }
 
   function handlePeerLeft(msg: SignalingMessage) {
@@ -223,7 +298,6 @@ export function useWebRTC(roomId: string, displayName: string) {
       connectionsRef.current.delete(peerId);
     }
 
-
     playLeaveSound();
 
     setPeers((prev) => {
@@ -231,6 +305,12 @@ export function useWebRTC(roomId: string, displayName: string) {
       next.delete(peerId);
       return next;
     });
+
+    // If the peer who activated AI left, mark AI as stopped
+    if (aiActivatedBy === peerId) {
+      setAiActiveInRoom(false);
+      setAiActivatedBy(null);
+    }
   }
 
   async function handleOffer(msg: SignalingMessage) {
@@ -239,17 +319,11 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     let pc = connectionsRef.current.get(fromPeerId);
 
-    // Polite peer pattern: if we're making an offer too, the lower peerId yields
     const isPolite =
-      myPeerIdRef.current != null &&
-      myPeerIdRef.current < fromPeerId;
+      myPeerIdRef.current != null && myPeerIdRef.current < fromPeerId;
 
     if (pc && makingOfferRef.current.has(fromPeerId)) {
-      if (!isPolite) {
-        // We're impolite — ignore their offer
-        return;
-      }
-      // We're polite — rollback our offer
+      if (!isPolite) return;
       await pc.setLocalDescription({ type: "rollback" });
     }
 
@@ -257,15 +331,19 @@ export function useWebRTC(roomId: string, displayName: string) {
       pc = createPeerConnection(fromPeerId);
     }
 
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
 
-    sendRef.current({
-      type: "answer",
-      targetPeerId: fromPeerId,
-      sdp: pc.localDescription!.toJSON(),
-    });
+      sendRef.current({
+        type: "answer",
+        targetPeerId: fromPeerId,
+        sdp: pc.localDescription!.toJSON(),
+      });
+    } catch (err) {
+      console.error("Error handling offer:", err);
+    }
   }
 
   async function handleAnswer(msg: SignalingMessage) {
@@ -275,7 +353,11 @@ export function useWebRTC(roomId: string, displayName: string) {
     const pc = connectionsRef.current.get(fromPeerId);
     if (!pc) return;
 
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    } catch (err) {
+      console.error("Error handling answer:", err);
+    }
   }
 
   async function handleIceCandidate(msg: SignalingMessage) {
@@ -288,7 +370,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-      console.error("Error adding ICE candidate:", err);
+      // Ignore ICE candidate errors for stale connections
     }
   }
 
@@ -302,8 +384,6 @@ export function useWebRTC(roomId: string, displayName: string) {
     }
   }, []);
 
-  // Replace the mic track on all peer connections with a mixed track
-  // (mic + AI audio), avoiding renegotiation entirely
   const replaceOutgoingTrack = useCallback(
     (newTrack: MediaStreamTrack) => {
       connectionsRef.current.forEach((pc) => {
@@ -316,7 +396,6 @@ export function useWebRTC(roomId: string, displayName: string) {
     []
   );
 
-  // Restore the original mic track on all peer connections
   const restoreOriginalTrack = useCallback(() => {
     const originalTrack = localStreamRef.current?.getAudioTracks()[0];
     if (!originalTrack) return;
@@ -328,12 +407,25 @@ export function useWebRTC(roomId: string, displayName: string) {
     });
   }, []);
 
+  const broadcastAiStarted = useCallback(() => {
+    if (!myPeerIdRef.current) return;
+    sendRef.current({ type: "ai-started", peerId: myPeerIdRef.current });
+    setAiActiveInRoom(true);
+    setAiActivatedBy(myPeerIdRef.current);
+  }, []);
+
+  const broadcastAiStopped = useCallback(() => {
+    sendRef.current({ type: "ai-stopped" });
+    setAiActiveInRoom(false);
+    setAiActivatedBy(null);
+  }, []);
+
   const leave = useCallback(() => {
     sendRef.current({ type: "leave" });
     connectionsRef.current.forEach((pc) => pc.close());
     connectionsRef.current.clear();
-
     setPeers(new Map());
+    joinedRef.current = false;
   }, []);
 
   return {
@@ -342,9 +434,13 @@ export function useWebRTC(roomId: string, displayName: string) {
     muted,
     myPeerId,
     connected,
+    aiActiveInRoom,
+    aiActivatedBy,
     toggleMute,
     replaceOutgoingTrack,
     restoreOriginalTrack,
+    broadcastAiStarted,
+    broadcastAiStopped,
     leave,
   };
 }

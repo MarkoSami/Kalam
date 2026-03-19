@@ -1,4 +1,3 @@
-import { User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ParticipantCardProps = {
@@ -7,7 +6,36 @@ type ParticipantCardProps = {
   isMuted?: boolean;
   isSpeaking?: boolean;
   level?: number;
+  connectionState?: string;
 };
+
+const COLORS = [
+  "bg-blue-500",
+  "bg-emerald-500",
+  "bg-violet-500",
+  "bg-amber-500",
+  "bg-rose-500",
+  "bg-cyan-500",
+  "bg-pink-500",
+  "bg-teal-500",
+];
+
+function getColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return COLORS[Math.abs(hash) % COLORS.length];
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 export function ParticipantCard({
   displayName,
@@ -15,42 +43,51 @@ export function ParticipantCard({
   isMuted,
   isSpeaking,
   level = 0,
+  connectionState,
 }: ParticipantCardProps) {
+  const isConnecting = connectionState === "new" || connectionState === "connecting";
+  const isDisconnected = connectionState === "disconnected" || connectionState === "failed";
+
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-2 p-4 rounded-xl border bg-card text-card-foreground transition-all duration-150",
-        isSpeaking && !isMuted && "border-green-500 ring-2 ring-green-500/30"
+        "flex flex-col items-center gap-2.5 p-5 rounded-2xl border bg-card text-card-foreground transition-all duration-150 w-[130px]",
+        isSpeaking && !isMuted && "border-green-500 ring-2 ring-green-500/25",
+        isDisconnected && "opacity-50"
       )}
     >
       <div
         className={cn(
-          "flex items-center justify-center w-14 h-14 rounded-full bg-muted transition-colors duration-150",
-          isSpeaking && !isMuted && "bg-green-500/20"
+          "flex items-center justify-center w-14 h-14 rounded-full text-white font-semibold text-lg transition-all duration-150",
+          getColor(displayName),
+          isSpeaking && !isMuted && "scale-110"
         )}
       >
-        <User
-          className={cn(
-            "h-7 w-7 text-muted-foreground transition-colors duration-150",
-            isSpeaking && !isMuted && "text-green-500"
-          )}
-        />
+        {getInitials(displayName)}
       </div>
 
-      {/* Audio level bar */}
-      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+      <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
         <div
           className="h-full bg-green-500 rounded-full transition-all duration-75"
           style={{ width: `${(isMuted ? 0 : level) * 100}%` }}
         />
       </div>
 
-      <span className="text-sm font-medium truncate max-w-[120px]">
+      <span className="text-sm font-medium truncate w-full text-center">
         {displayName}
         {isLocal && " (You)"}
       </span>
+
       {isMuted && (
-        <span className="text-xs text-muted-foreground">Muted</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          Muted
+        </span>
+      )}
+
+      {isConnecting && !isLocal && (
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          Connecting...
+        </span>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import {
   leaveRoom,
   getPeerSocket,
   getPeerId,
+  getRoomId,
   broadcastToRoom,
 } from "./rooms";
 import { registerElevenLabsRoutes } from "./routes/elevenlabs";
@@ -69,6 +70,10 @@ async function start() {
               [key: string]: unknown;
             }
           );
+          break;
+        case "ai-started":
+        case "ai-stopped":
+          broadcastFromPeer(socket, msg);
           break;
         default:
           socket.send(
@@ -148,6 +153,19 @@ function relay(
 
   const { targetPeerId, ...rest } = msg;
   targetSocket.send(JSON.stringify({ ...rest, fromPeerId }));
+}
+
+function broadcastFromPeer(
+  socket: WebSocket,
+  msg: { type: string; [key: string]: unknown }
+) {
+  const fromPeerId = getPeerId(socket);
+  if (!fromPeerId) return;
+
+  const roomId = getRoomId(fromPeerId);
+  if (!roomId) return;
+
+  broadcastToRoom(roomId, { ...msg, peerId: fromPeerId }, fromPeerId);
 }
 
 start().catch((err) => {

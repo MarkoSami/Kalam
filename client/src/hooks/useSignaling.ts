@@ -7,19 +7,23 @@ export type SignalingMessage = {
 
 type UseSignalingOptions = {
   onMessage: (msg: SignalingMessage) => void;
+  onReconnect?: () => void;
 };
 
-const MAX_RETRIES = 10;
+const MAX_RETRIES = 15;
 const BASE_DELAY = 1000;
 const MAX_DELAY = 10000;
 
-export function useSignaling({ onMessage }: UseSignalingOptions) {
+export function useSignaling({ onMessage, onReconnect }: UseSignalingOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
+  const onReconnectRef = useRef(onReconnect);
+  onReconnectRef.current = onReconnect;
   const retriesRef = useRef(0);
   const mountedRef = useRef(true);
+  const wasConnectedRef = useRef(false);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -30,7 +34,14 @@ export function useSignaling({ onMessage }: UseSignalingOptions) {
 
     ws.onopen = () => {
       setConnected(true);
+      const wasReconnect = wasConnectedRef.current;
+      wasConnectedRef.current = true;
       retriesRef.current = 0;
+
+      if (wasReconnect) {
+        console.log("[Signaling] Reconnected");
+        onReconnectRef.current?.();
+      }
     };
 
     ws.onclose = () => {
@@ -59,7 +70,7 @@ export function useSignaling({ onMessage }: UseSignalingOptions) {
         const msg = JSON.parse(event.data);
         onMessageRef.current(msg);
       } catch {
-        // ignore malformed messages
+        // ignore
       }
     };
   }, []);
