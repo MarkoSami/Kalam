@@ -3,5 +3,6 @@ export const config = {
   host: process.env.HOST || "0.0.0.0",
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || "",
+    agentId: process.env.ELEVENLABS_AGENT_ID || "",
   },
 };

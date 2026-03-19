@@ -1,7 +1,16 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
+import type { WebSocket } from "ws";
 import { config } from "./config";
+import {
+  joinRoom,
+  leaveRoom,
+  getPeerSocket,
+  getPeerId,
+  broadcastToRoom,
+} from "./rooms";
+import { registerElevenLabsRoutes } from "./routes/elevenlabs";
 
 const app = Fastify({ logger: true });
 
@@ -9,23 +18,113 @@ async function start() {
   await app.register(cors);
   await app.register(websocket);
 
-  app.get("/health", async () => {
-    return { status: "ok" };
-  });
+  registerElevenLabsRoutes(app);
 
-  app.get("/ws", { websocket: true }, (socket) => {
-    app.log.info("WebSocket client connected");
+  app.get("/health", async () => ({ status: "ok" }));
 
-    socket.on("message", (message: Buffer) => {
-      app.log.info(`Received: ${message.toString()}`);
+  app.get("/ws", { websocket: true }, (socket: WebSocket) => {
+    socket.on("message", (raw: Buffer) => {
+      let msg: { type: string; [key: string]: unknown };
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        socket.send(JSON.stringify({ type: "error", message: "Invalid JSON" }));
+        return;
+      }
+
+      switch (msg.type) {
+        case "join":
+          handleJoin(
+            socket,
+            msg as { type: string; roomId: string; displayName: string }
+          );
+          break;
+        case "leave":
+          handleLeave(socket);
+          break;
+        case "offer":
+        case "answer":
+        case "ice-candidate":
+          relay(
+            socket,
+            msg as {
+              type: string;
+              targetPeerId: string;
+              [key: string]: unknown;
+            }
+          );
+          break;
+        default:
+          socket.send(
+            JSON.stringify({
+              type: "error",
+              message: `Unknown type: ${msg.type}`,
+            })
+          );
+      }
     });
 
-    socket.on("close", () => {
-      app.log.info("WebSocket client disconnected");
-    });
+    socket.on("close", () => handleLeave(socket));
   });
 
   await app.listen({ port: config.port, host: config.host });
+}
+
+function handleJoin(
+  socket: WebSocket,
+  msg: { roomId: string; displayName: string }
+) {
+  const { peerId, existingPeers } = joinRoom(
+    msg.roomId,
+    msg.displayName,
+    socket
+  );
+
+  socket.send(
+    JSON.stringify({
+      type: "joined",
+      peerId,
+      peers: existingPeers,
+    })
+  );
+
+  broadcastToRoom(
+    msg.roomId,
+    {
+      type: "peer-joined",
+      peerId,
+      displayName: msg.displayName,
+    },
+    peerId
+  );
+
+  app.log.info(`Peer ${peerId} joined room ${msg.roomId}`);
+}
+
+function handleLeave(socket: WebSocket) {
+  const result = leaveRoom(socket);
+  if (!result) return;
+
+  broadcastToRoom(result.roomId, {
+    type: "peer-left",
+    peerId: result.peerId,
+  });
+
+  app.log.info(`Peer ${result.peerId} left room ${result.roomId}`);
+}
+
+function relay(
+  socket: WebSocket,
+  msg: { type: string; targetPeerId: string; [key: string]: unknown }
+) {
+  const fromPeerId = getPeerId(socket);
+  if (!fromPeerId) return;
+
+  const targetSocket = getPeerSocket(msg.targetPeerId);
+  if (!targetSocket) return;
+
+  const { targetPeerId, ...rest } = msg;
+  targetSocket.send(JSON.stringify({ ...rest, fromPeerId }));
 }
 
 start().catch((err) => {
