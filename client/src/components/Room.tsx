@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { useElevenLabs } from "@/hooks/useElevenLabs";
+import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { Controls } from "./Controls";
 import { ParticipantCard } from "./ParticipantCard";
 
@@ -12,6 +13,7 @@ type RoomProps = {
 
 export function Room({ roomId, displayName, onLeave }: RoomProps) {
   const {
+    localStream,
     peers,
     muted,
     connected,
@@ -25,6 +27,9 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     addAiTrack,
     removeAiTrack,
   });
+
+  const { speaking: localSpeaking, level: localLevel } =
+    useAudioLevel(localStream);
 
   const handleLeave = () => {
     stopAi();
@@ -40,9 +45,33 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     }
   };
 
+  const streamInfo = localStream
+    ? (() => {
+        const t = localStream.getAudioTracks()[0];
+        return t
+          ? `${t.label} | ${t.readyState} | enabled:${t.enabled}`
+          : "no tracks";
+      })()
+    : "null";
+
   return (
     <div className="flex flex-col h-screen">
-      {/* Header */}
+      {/* Debug bar */}
+      <div className="px-6 py-2 bg-muted/50 border-b text-xs font-mono space-y-1">
+        <div>stream: {streamInfo}</div>
+        <div className="flex items-center gap-2">
+          <span>level:</span>
+          <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-green-500 rounded-full transition-all duration-75"
+              style={{ width: `${localLevel * 100}%` }}
+            />
+          </div>
+          <span>{(localLevel * 100).toFixed(0)}%</span>
+          <span>{localSpeaking ? "SPEAKING" : ""}</span>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between px-6 py-4 border-b">
         <div>
           <h1 className="text-lg font-semibold">Room: {roomId}</h1>
@@ -52,17 +81,18 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         </div>
       </div>
 
-      {/* Participants grid */}
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="flex flex-wrap gap-4 justify-center">
           <ParticipantCard
             displayName={displayName}
             isLocal
             isMuted={muted}
+            isSpeaking={localSpeaking}
+            level={localLevel}
           />
 
           {Array.from(peers.entries()).map(([peerId, peer]) => (
-            <PeerAudio key={peerId} peerId={peerId} peer={peer} />
+            <PeerAudio key={peerId} peer={peer} />
           ))}
 
           {aiActive && (
@@ -77,7 +107,6 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         </div>
       </div>
 
-      {/* Controls */}
       <Controls
         muted={muted}
         aiActive={aiActive}
@@ -91,13 +120,12 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 }
 
 function PeerAudio({
-  peerId,
   peer,
 }: {
-  peerId: string;
   peer: { displayName: string; stream: MediaStream | null };
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const { speaking, level } = useAudioLevel(peer.stream);
 
   useEffect(() => {
     if (audioRef.current && peer.stream) {
@@ -107,7 +135,11 @@ function PeerAudio({
 
   return (
     <>
-      <ParticipantCard displayName={peer.displayName} />
+      <ParticipantCard
+        displayName={peer.displayName}
+        isSpeaking={speaking}
+        level={level}
+      />
       <audio ref={audioRef} autoPlay playsInline style={{ display: "none" }} />
     </>
   );

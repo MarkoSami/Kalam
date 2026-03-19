@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Room } from "@/components/Room";
+import { MicTest } from "@/components/MicTest";
 
 function App() {
   const [roomId, setRoomId] = useState("");
@@ -9,6 +10,7 @@ function App() {
     roomId: string;
     displayName: string;
   } | null>(null);
+  const [showMicTest, setShowMicTest] = useState(false);
 
   if (inRoom) {
     return (
@@ -17,6 +19,14 @@ function App() {
         displayName={inRoom.displayName}
         onLeave={() => setInRoom(null)}
       />
+    );
+  }
+
+  if (showMicTest) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <MicTest onClose={() => setShowMicTest(false)} />
+      </div>
     );
   }
 
@@ -56,6 +66,14 @@ function App() {
 
         <Button type="submit" disabled={!roomId.trim() || !displayName.trim()}>
           Join Room
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setShowMicTest(true)}
+        >
+          Test Microphone
         </Button>
       </form>
     </div>

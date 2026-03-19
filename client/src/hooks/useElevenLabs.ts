@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { Conversation } from "@elevenlabs/client";
+import { Conversation, type VoiceConversation } from "@elevenlabs/client";
 
 type UseElevenLabsOptions = {
   addAiTrack: (track: MediaStreamTrack, stream: MediaStream) => void;
@@ -19,71 +19,48 @@ export function useElevenLabs({
     try {
       setAiStatus("Connecting...");
 
-      // Get signed URL from our server
       const res = await fetch("/api/elevenlabs/signed-url", {
         method: "POST",
       });
       if (!res.ok) {
-        throw new Error("Failed to get signed URL");
+        const body = await res.text();
+        throw new Error(`Failed to get signed URL: ${body}`);
       }
       const { signedUrl } = await res.json();
 
-      // Start ElevenLabs conversation
+      // Conversation.startSession auto-delegates to VoiceConversation
+      // when textOnly is not set. It handles mic + speaker internally.
       const conversation = await Conversation.startSession({
         signedUrl,
         onStatusChange: (status) => {
+          console.log("[ElevenLabs] status:", status.status);
           setAiStatus(status.status);
         },
         onError: (error) => {
-          console.error("ElevenLabs error:", error);
+          console.error("[ElevenLabs] error:", error);
           setAiStatus("Error");
         },
-        onDisconnect: () => {
+        onDisconnect: (details) => {
+          console.log("[ElevenLabs] disconnected:", details);
           setAiActive(false);
           setAiStatus("");
           removeAiTrack();
+        },
+        onConnect: ({ conversationId }) => {
+          console.log("[ElevenLabs] connected, id:", conversationId);
         },
       });
 
       conversationRef.current = conversation;
 
-      // Tap into the output gain node to capture AI audio as a MediaStream
-      // The Output class exposes: context (AudioContext), gain (GainNode)
-      // We create a MediaStreamAudioDestinationNode and connect the gain to it
-      // This gives us a MediaStream we can inject into peer connections
-      const output = (conversation as unknown as { options: { output: { context: AudioContext; gain: GainNode } } }).options;
+      // The returned Conversation is actually a VoiceConversation instance
+      // with public `output` (has context, gain, analyser) and `input` properties
+      const voiceConv = conversation as unknown as VoiceConversation;
 
-      // Access the output through the conversation's internal structure
-      // The Conversation extends BaseConversation which has options.output
-      // We need to access the AudioContext and GainNode
-      // Let's try accessing via getOutputByteFrequencyData which implies analyser exists
-
-      // Alternative approach: capture audio from the audio element
-      const audioElement = document.querySelector("audio[data-elevenlabs]") as HTMLAudioElement | null;
-
-      // Best approach: Use Web Audio API to capture from the conversation
-      // The @elevenlabs/client creates an Output with public context and gain
-      // We access it through the conversation object
-      const conv = conversation as unknown as Record<string, unknown>;
-
-      // Try to find the output object in the conversation
-      let audioContext: AudioContext | null = null;
-      let gainNode: GainNode | null = null;
-
-      // The BaseConversation stores options which includes the Output instance
-      // Look for it in the object
-      if (conv.options && typeof conv.options === "object") {
-        const opts = conv.options as Record<string, unknown>;
-        if (opts.output && typeof opts.output === "object") {
-          const out = opts.output as { context?: AudioContext; gain?: GainNode };
-          audioContext = out.context ?? null;
-          gainNode = out.gain ?? null;
-        }
-      }
-
-      if (audioContext && gainNode) {
-        const dest = audioContext.createMediaStreamDestination();
-        gainNode.connect(dest);
+      if (voiceConv.output) {
+        const { context, gain } = voiceConv.output;
+        const dest = context.createMediaStreamDestination();
+        gain.connect(dest);
         destNodeRef.current = dest;
 
         const aiStream = dest.stream;
@@ -91,16 +68,15 @@ export function useElevenLabs({
         if (aiTrack) {
           addAiTrack(aiTrack, aiStream);
         }
+        console.log("[ElevenLabs] AI audio track captured for peers");
       } else {
-        console.warn(
-          "Could not access ElevenLabs audio internals. AI audio won't be shared with peers."
-        );
+        console.warn("[ElevenLabs] No output available - AI audio won't be shared with peers");
       }
 
       setAiActive(true);
       setAiStatus("Connected");
     } catch (err) {
-      console.error("Failed to start AI:", err);
+      console.error("[ElevenLabs] Failed to start AI:", err);
       setAiStatus("Failed");
       setTimeout(() => setAiStatus(""), 3000);
     }

@@ -21,6 +21,7 @@ export function useWebRTC(roomId: string, displayName: string) {
   const myPeerIdRef = useRef<string | null>(null);
   const aiSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const makingOfferRef = useRef<Set<string>>(new Set());
+  const joinedRef = useRef(false);
 
   const onMessage = useCallback((msg: SignalingMessage) => {
     switch (msg.type) {
@@ -52,22 +53,42 @@ export function useWebRTC(roomId: string, displayName: string) {
 
   // Get user media on mount
   useEffect(() => {
+    let cancelled = false;
+
     navigator.mediaDevices
-      .getUserMedia({ audio: true, video: false })
+      .getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      })
       .then((stream) => {
+        if (cancelled) {
+          // StrictMode cleanup ran before getUserMedia resolved — discard
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         localStreamRef.current = stream;
         setLocalStream(stream);
+        console.log("[WebRTC] Got mic stream, tracks:", stream.getAudioTracks().map(t => `${t.label} (${t.readyState})`));
       })
       .catch((err) => console.error("Failed to get microphone:", err));
 
     return () => {
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      cancelled = true;
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+      }
     };
   }, []);
 
-  // Join room when connected and stream ready
+  // Join room when connected and stream ready (guard against StrictMode double-fire)
   useEffect(() => {
-    if (connected && localStream) {
+    if (connected && localStream && !joinedRef.current) {
+      joinedRef.current = true;
       sendRef.current({ type: "join", roomId, displayName });
     }
   }, [connected, localStream, roomId, displayName]);
