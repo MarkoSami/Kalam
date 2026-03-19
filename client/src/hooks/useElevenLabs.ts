@@ -3,29 +3,33 @@ import { Conversation, type VoiceConversation } from "@elevenlabs/client";
 import type { PeerState } from "./useWebRTC";
 
 type UseElevenLabsOptions = {
-  addAiTrack: (track: MediaStreamTrack, stream: MediaStream) => void;
-  removeAiTrack: () => void;
+  replaceOutgoingTrack: (track: MediaStreamTrack) => void;
+  restoreOriginalTrack: () => void;
   localStream: MediaStream | null;
   peers: Map<string, PeerState>;
 };
 
 export function useElevenLabs({
-  addAiTrack,
-  removeAiTrack,
+  replaceOutgoingTrack,
+  restoreOriginalTrack,
   localStream,
   peers,
 }: UseElevenLabsOptions) {
   const [aiActive, setAiActive] = useState(false);
   const [aiStatus, setAiStatus] = useState<string>("");
   const conversationRef = useRef<Conversation | null>(null);
-  const destNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const mixCtxRef = useRef<AudioContext | null>(null);
   const mixDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const peerSourcesRef = useRef<Map<string, MediaStreamAudioSourceNode>>(
     new Map()
   );
+  const startingRef = useRef(false);
 
   const startAi = useCallback(async () => {
+    // Guard against double-click / multiple activations
+    if (startingRef.current || aiActive) return;
+    startingRef.current = true;
+
     try {
       setAiStatus("Connecting...");
 
@@ -38,7 +42,8 @@ export function useElevenLabs({
       }
       const { signedUrl } = await res.json();
 
-      // Create a mixed audio stream: local mic + all peer streams
+      // Build a mixed stream: local mic + all peer audio
+      // This is what the AI will "hear"
       const mixCtx = new AudioContext();
       await mixCtx.resume();
       mixCtxRef.current = mixCtx;
@@ -46,13 +51,11 @@ export function useElevenLabs({
       const mixDest = mixCtx.createMediaStreamDestination();
       mixDestRef.current = mixDest;
 
-      // Add local mic to mix
       if (localStream) {
         const localSource = mixCtx.createMediaStreamSource(localStream);
         localSource.connect(mixDest);
       }
 
-      // Add all peer streams to mix
       for (const [peerId, peer] of peers) {
         if (peer.stream) {
           const peerSource = mixCtx.createMediaStreamSource(peer.stream);
@@ -64,16 +67,15 @@ export function useElevenLabs({
       const mixedStream = mixDest.stream;
 
       // Temporarily override getUserMedia so ElevenLabs SDK
-      // picks up our mixed stream instead of just the mic
-      const originalGetUserMedia =
+      // picks up the mixed stream (all participants) instead of just mic
+      const originalGUM =
         navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 
       navigator.mediaDevices.getUserMedia = async (constraints) => {
-        // Only intercept audio requests (let video pass through)
         if (constraints && typeof constraints === "object" && constraints.audio) {
           return mixedStream;
         }
-        return originalGetUserMedia(constraints);
+        return originalGUM(constraints);
       };
 
       const conversation = await Conversation.startSession({
@@ -90,31 +92,51 @@ export function useElevenLabs({
           console.log("[ElevenLabs] disconnected:", details);
           setAiActive(false);
           setAiStatus("");
-          removeAiTrack();
+          restoreOriginalTrack();
         },
         onConnect: ({ conversationId }) => {
           console.log("[ElevenLabs] connected, id:", conversationId);
         },
       });
 
-      // Restore original getUserMedia
-      navigator.mediaDevices.getUserMedia = originalGetUserMedia;
+      // Restore original getUserMedia immediately
+      navigator.mediaDevices.getUserMedia = originalGUM;
 
       conversationRef.current = conversation;
 
-      // Capture AI audio output for peers
+      // Capture AI audio output and mix it with the local mic
+      // into a single track that replaces the outgoing WebRTC track.
+      // This way peers hear: mic + AI audio, no renegotiation needed.
       const voiceConv = conversation as unknown as VoiceConversation;
-      if (voiceConv.output) {
-        const { context, gain } = voiceConv.output;
-        const dest = context.createMediaStreamDestination();
-        gain.connect(dest);
-        destNodeRef.current = dest;
+      if (voiceConv.output && localStream) {
+        const outCtx = new AudioContext();
+        await outCtx.resume();
 
-        const aiTrack = dest.stream.getAudioTracks()[0];
-        if (aiTrack) {
-          addAiTrack(aiTrack, dest.stream);
+        const outDest = outCtx.createMediaStreamDestination();
+
+        // Add local mic
+        const micSource = outCtx.createMediaStreamSource(localStream);
+        micSource.connect(outDest);
+
+        // Add AI audio output
+        const { gain } = voiceConv.output;
+        // We need to connect the AI gain to our context, but they're in
+        // different AudioContexts. Use a MediaStream bridge:
+        const aiCaptureDest =
+          voiceConv.output.context.createMediaStreamDestination();
+        gain.connect(aiCaptureDest);
+        const aiSource = outCtx.createMediaStreamSource(aiCaptureDest.stream);
+        aiSource.connect(outDest);
+
+        // Replace the outgoing track on all peer connections
+        const mixedTrack = outDest.stream.getAudioTracks()[0];
+        if (mixedTrack) {
+          replaceOutgoingTrack(mixedTrack);
         }
-        console.log("[ElevenLabs] AI audio track captured for peers");
+
+        console.log(
+          "[ElevenLabs] AI audio mixed with mic and sent to all peers"
+        );
       }
 
       setAiActive(true);
@@ -123,17 +145,23 @@ export function useElevenLabs({
       console.error("[ElevenLabs] Failed to start AI:", err);
       setAiStatus("Failed");
       setTimeout(() => setAiStatus(""), 3000);
+    } finally {
+      startingRef.current = false;
     }
-  }, [addAiTrack, removeAiTrack, localStream, peers]);
+  }, [
+    aiActive,
+    replaceOutgoingTrack,
+    restoreOriginalTrack,
+    localStream,
+    peers,
+  ]);
 
-  // Update mix when peers change (call from Room when peers update)
   const updateMix = useCallback(
     (currentPeers: Map<string, PeerState>) => {
       const mixDest = mixDestRef.current;
       const mixCtx = mixCtxRef.current;
       if (!mixDest || !mixCtx || mixCtx.state === "closed") return;
 
-      // Remove old peer sources that are no longer present
       for (const [peerId, source] of peerSourcesRef.current) {
         if (!currentPeers.has(peerId)) {
           source.disconnect();
@@ -141,7 +169,6 @@ export function useElevenLabs({
         }
       }
 
-      // Add new peer sources
       for (const [peerId, peer] of currentPeers) {
         if (peer.stream && !peerSourcesRef.current.has(peerId)) {
           const source = mixCtx.createMediaStreamSource(peer.stream);
@@ -159,22 +186,16 @@ export function useElevenLabs({
       conversationRef.current = null;
     }
 
-    if (destNodeRef.current) {
-      destNodeRef.current.disconnect();
-      destNodeRef.current = null;
-    }
-
-    // Clean up mixer
     peerSourcesRef.current.forEach((s) => s.disconnect());
     peerSourcesRef.current.clear();
     mixDestRef.current = null;
     mixCtxRef.current?.close();
     mixCtxRef.current = null;
 
-    removeAiTrack();
+    restoreOriginalTrack();
     setAiActive(false);
     setAiStatus("");
-  }, [removeAiTrack]);
+  }, [restoreOriginalTrack]);
 
   return { aiActive, aiStatus, startAi, stopAi, updateMix };
 }

@@ -20,7 +20,6 @@ export function useWebRTC(roomId: string, displayName: string) {
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
-  const aiSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const makingOfferRef = useRef<Set<string>>(new Set());
   const joinedRef = useRef(false);
 
@@ -224,7 +223,7 @@ export function useWebRTC(roomId: string, displayName: string) {
       connectionsRef.current.delete(peerId);
     }
 
-    aiSendersRef.current.delete(peerId);
+
     playLeaveSound();
 
     setPeers((prev) => {
@@ -303,31 +302,37 @@ export function useWebRTC(roomId: string, displayName: string) {
     }
   }, []);
 
-  const addAiTrack = useCallback(
-    (track: MediaStreamTrack, stream: MediaStream) => {
-      connectionsRef.current.forEach((pc, peerId) => {
-        const sender = pc.addTrack(track, stream);
-        aiSendersRef.current.set(peerId, sender);
+  // Replace the mic track on all peer connections with a mixed track
+  // (mic + AI audio), avoiding renegotiation entirely
+  const replaceOutgoingTrack = useCallback(
+    (newTrack: MediaStreamTrack) => {
+      connectionsRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+        if (sender) {
+          sender.replaceTrack(newTrack);
+        }
       });
     },
     []
   );
 
-  const removeAiTrack = useCallback(() => {
-    aiSendersRef.current.forEach((sender, peerId) => {
-      const pc = connectionsRef.current.get(peerId);
-      if (pc) {
-        pc.removeTrack(sender);
+  // Restore the original mic track on all peer connections
+  const restoreOriginalTrack = useCallback(() => {
+    const originalTrack = localStreamRef.current?.getAudioTracks()[0];
+    if (!originalTrack) return;
+    connectionsRef.current.forEach((pc) => {
+      const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+      if (sender) {
+        sender.replaceTrack(originalTrack);
       }
     });
-    aiSendersRef.current.clear();
   }, []);
 
   const leave = useCallback(() => {
     sendRef.current({ type: "leave" });
     connectionsRef.current.forEach((pc) => pc.close());
     connectionsRef.current.clear();
-    aiSendersRef.current.clear();
+
     setPeers(new Map());
   }, []);
 
@@ -338,8 +343,8 @@ export function useWebRTC(roomId: string, displayName: string) {
     myPeerId,
     connected,
     toggleMute,
-    addAiTrack,
-    removeAiTrack,
+    replaceOutgoingTrack,
+    restoreOriginalTrack,
     leave,
   };
 }

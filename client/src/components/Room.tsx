@@ -18,14 +18,14 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     muted,
     connected,
     toggleMute,
-    addAiTrack,
-    removeAiTrack,
+    replaceOutgoingTrack,
+    restoreOriginalTrack,
     leave,
   } = useWebRTC(roomId, displayName);
 
   const { aiActive, aiStatus, startAi, stopAi, updateMix } = useElevenLabs({
-    addAiTrack,
-    removeAiTrack,
+    replaceOutgoingTrack,
+    restoreOriginalTrack,
     localStream,
     peers,
   });
