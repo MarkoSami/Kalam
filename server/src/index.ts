@@ -1,7 +1,10 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
+import fastifyStatic from "@fastify/static";
 import type { WebSocket } from "ws";
+import { resolve } from "path";
+import { existsSync } from "fs";
 import { config } from "./config";
 import {
   joinRoom,
@@ -19,6 +22,16 @@ async function start() {
   await app.register(websocket);
 
   registerElevenLabsRoutes(app);
+
+  // Serve built client files in production
+  const clientDist = resolve(__dirname, "..", "..", "client", "dist");
+  if (existsSync(clientDist)) {
+    await app.register(fastifyStatic, {
+      root: clientDist,
+      prefix: "/",
+      wildcard: false,
+    });
+  }
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -66,6 +79,13 @@ async function start() {
 
     socket.on("close", () => handleLeave(socket));
   });
+
+  // SPA catch-all: serve index.html for any unmatched route
+  if (existsSync(clientDist)) {
+    app.setNotFoundHandler(async (_request, reply) => {
+      return reply.sendFile("index.html");
+    });
+  }
 
   await app.listen({ port: config.port, host: config.host });
 }
