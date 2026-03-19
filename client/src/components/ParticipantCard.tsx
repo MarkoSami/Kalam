@@ -7,6 +7,7 @@ type ParticipantCardProps = {
   isSpeaking?: boolean;
   level?: number;
   connectionState?: string;
+  compact?: boolean;
 };
 
 const COLORS = [
@@ -44,9 +45,45 @@ export function ParticipantCard({
   isSpeaking,
   level = 0,
   connectionState,
+  compact,
 }: ParticipantCardProps) {
-  const isConnecting = connectionState === "new" || connectionState === "connecting";
-  const isDisconnected = connectionState === "disconnected" || connectionState === "failed";
+  const isConnecting =
+    connectionState === "new" || connectionState === "connecting";
+  const isDisconnected =
+    connectionState === "disconnected" || connectionState === "failed";
+
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-2.5 px-3 py-2 rounded-xl border bg-card w-full transition-all duration-150",
+          isSpeaking && !isMuted && "border-green-500 ring-1 ring-green-500/25",
+          isDisconnected && "opacity-50"
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center justify-center w-8 h-8 rounded-full text-white font-medium text-xs shrink-0",
+            getColor(displayName)
+          )}
+        >
+          {getInitials(displayName)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-medium truncate block">
+            {displayName}
+            {isLocal && " (You)"}
+          </span>
+          <div className="w-full h-0.5 bg-muted rounded-full overflow-hidden mt-1">
+            <div
+              className="h-full bg-green-500 rounded-full transition-all duration-75"
+              style={{ width: `${(isMuted ? 0 : level) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

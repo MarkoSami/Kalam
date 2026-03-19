@@ -2,9 +2,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSignaling, type SignalingMessage } from "./useSignaling";
 import { playJoinSound, playLeaveSound } from "@/lib/sounds";
 
+export type ChatMessage = {
+  id: string;
+  peerId: string;
+  displayName: string;
+  text: string;
+  timestamp: number;
+};
+
+export type EmojiReaction = {
+  id: string;
+  emoji: string;
+  displayName: string;
+};
+
 export type PeerState = {
   displayName: string;
   stream: MediaStream | null;
+  screenStream: MediaStream | null;
   connectionState: string;
 };
 
@@ -37,6 +52,10 @@ export function useWebRTC(roomId: string, displayName: string) {
   const [myPeerId, setMyPeerId] = useState<string | null>(null);
   const [aiActiveInRoom, setAiActiveInRoom] = useState(false);
   const [aiActivatedBy, setAiActivatedBy] = useState<string | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
+  const screenSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -75,6 +94,33 @@ export function useWebRTC(roomId: string, displayName: string) {
       case "ai-stopped":
         setAiActiveInRoom(false);
         setAiActivatedBy(null);
+        break;
+      case "chat":
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            peerId: msg.peerId as string,
+            displayName: msg.displayName as string,
+            text: msg.text as string,
+            timestamp: Date.now(),
+          },
+        ]);
+        break;
+      case "emoji":
+        {
+          const reaction: EmojiReaction = {
+            id: crypto.randomUUID(),
+            emoji: msg.emoji as string,
+            displayName: msg.displayName as string,
+          };
+          setEmojiReactions((prev) => [...prev, reaction]);
+          setTimeout(() => {
+            setEmojiReactions((prev) =>
+              prev.filter((r) => r.id !== reaction.id)
+            );
+          }, 3000);
+        }
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,15 +226,34 @@ export function useWebRTC(roomId: string, displayName: string) {
     };
 
     pc.ontrack = (event) => {
+      const track = event.track;
       const [remoteStream] = event.streams;
       setPeers((prev) => {
         const next = new Map(prev);
         const existing = next.get(peerId);
-        if (existing) {
+        if (!existing) return next;
+
+        if (track.kind === "video") {
+          next.set(peerId, { ...existing, screenStream: remoteStream });
+        } else {
           next.set(peerId, { ...existing, stream: remoteStream });
         }
         return next;
       });
+
+      // Clear screen stream when video track ends
+      if (track.kind === "video") {
+        track.onended = () => {
+          setPeers((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(peerId);
+            if (existing) {
+              next.set(peerId, { ...existing, screenStream: null });
+            }
+            return next;
+          });
+        };
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -251,6 +316,7 @@ export function useWebRTC(roomId: string, displayName: string) {
         next.set(peer.peerId, {
           displayName: peer.displayName,
           stream: null,
+          screenStream: null,
           connectionState: "new",
         });
         return next;
@@ -282,6 +348,7 @@ export function useWebRTC(roomId: string, displayName: string) {
         displayName: name,
         stream: null,
         connectionState: "new",
+        screenStream: null,
       });
       return next;
     });
@@ -420,6 +487,94 @@ export function useWebRTC(roomId: string, displayName: string) {
     setAiActivatedBy(null);
   }, []);
 
+  const startScreenShare = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      setScreenStream(stream);
+
+      const videoTrack = stream.getVideoTracks()[0];
+
+      // Add screen track to all peer connections
+      connectionsRef.current.forEach((pc, peerId) => {
+        const sender = pc.addTrack(videoTrack, stream);
+        screenSendersRef.current.set(peerId, sender);
+      });
+
+      // When user stops sharing via browser UI
+      videoTrack.onended = () => {
+        stopScreenShare();
+      };
+    } catch (err) {
+      console.error("Screen share failed:", err);
+    }
+  }, []);
+
+  const stopScreenShare = useCallback(() => {
+    screenStream?.getTracks().forEach((t) => t.stop());
+    setScreenStream(null);
+
+    screenSendersRef.current.forEach((sender, peerId) => {
+      const pc = connectionsRef.current.get(peerId);
+      if (pc) {
+        try {
+          pc.removeTrack(sender);
+        } catch {
+          // ignore
+        }
+      }
+    });
+    screenSendersRef.current.clear();
+  }, [screenStream]);
+
+  const sendChat = useCallback(
+    (text: string) => {
+      if (!text.trim()) return;
+      sendRef.current({
+        type: "chat",
+        displayName: displayNameRef.current,
+        text: text.trim(),
+      });
+      // Add to local messages too
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          peerId: myPeerIdRef.current || "local",
+          displayName: displayNameRef.current,
+          text: text.trim(),
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    []
+  );
+
+  const sendEmoji = useCallback(
+    (emoji: string) => {
+      sendRef.current({
+        type: "emoji",
+        displayName: displayNameRef.current,
+        emoji,
+      });
+      // Show locally too
+      const reaction: EmojiReaction = {
+        id: crypto.randomUUID(),
+        emoji,
+        displayName: displayNameRef.current,
+      };
+      setEmojiReactions((prev) => [...prev, reaction]);
+      setTimeout(() => {
+        setEmojiReactions((prev) =>
+          prev.filter((r) => r.id !== reaction.id)
+        );
+      }, 3000);
+    },
+    []
+  );
+
   const leave = useCallback(() => {
     sendRef.current({ type: "leave" });
     connectionsRef.current.forEach((pc) => pc.close());
@@ -436,11 +591,18 @@ export function useWebRTC(roomId: string, displayName: string) {
     connected,
     aiActiveInRoom,
     aiActivatedBy,
+    screenStream,
+    chatMessages,
+    emojiReactions,
     toggleMute,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
     broadcastAiStopped,
+    startScreenShare,
+    stopScreenShare,
+    sendChat,
+    sendEmoji,
     leave,
   };
 }

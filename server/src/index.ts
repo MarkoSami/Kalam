@@ -73,6 +73,8 @@ async function start() {
           break;
         case "ai-started":
         case "ai-stopped":
+        case "chat":
+        case "emoji":
           broadcastFromPeer(socket, msg);
           break;
         default:

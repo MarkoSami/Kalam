@@ -6,6 +6,8 @@ import { useElevenLabs } from "@/hooks/useElevenLabs";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { Controls } from "./Controls";
 import { ParticipantCard } from "./ParticipantCard";
+import { Chat } from "./Chat";
+import { FloatingEmojis } from "./EmojiReactions";
 
 type RoomProps = {
   roomId: string;
@@ -18,13 +20,21 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     localStream,
     peers,
     muted,
+    myPeerId,
     connected,
     aiActiveInRoom,
+    screenStream,
+    chatMessages,
+    emojiReactions,
     toggleMute,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
     broadcastAiStopped,
+    startScreenShare,
+    stopScreenShare,
+    sendChat,
+    sendEmoji,
     leave,
   } = useWebRTC(roomId, displayName);
 
@@ -41,6 +51,16 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     useAudioLevel(localStream);
 
   const [copied, setCopied] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [lastReadCount, setLastReadCount] = useState(0);
+
+  const unreadCount = chatOpen ? 0 : chatMessages.length - lastReadCount;
+
+  useEffect(() => {
+    if (chatOpen) {
+      setLastReadCount(chatMessages.length);
+    }
+  }, [chatOpen, chatMessages.length]);
 
   useEffect(() => {
     if (aiActive) {
@@ -50,6 +70,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 
   const handleLeave = () => {
     stopAi();
+    stopScreenShare();
     leave();
     onLeave();
   };
@@ -70,8 +91,17 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     });
   };
 
+  // Find any active screen share (local or remote)
+  const activeScreen =
+    screenStream ||
+    Array.from(peers.values()).find((p) => p.screenStream)?.screenStream ||
+    null;
+
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-screen bg-background relative">
+      {/* Floating emoji reactions */}
+      <FloatingEmojis reactions={emojiReactions} />
+
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b">
         <div>
@@ -98,36 +128,80 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         </Button>
       </div>
 
-      {/* Participants */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="flex flex-wrap gap-4 justify-center">
-          <ParticipantCard
-            displayName={displayName}
-            isLocal
-            isMuted={muted}
-            isSpeaking={localSpeaking}
-            level={localLevel}
-          />
+      {/* Main content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Screen share view */}
+        {activeScreen && (
+          <div className="flex-1 flex items-center justify-center bg-black p-4">
+            <ScreenVideo stream={activeScreen} />
+          </div>
+        )}
 
-          {Array.from(peers.entries()).map(([peerId, peer]) => (
-            <PeerAudio key={peerId} peer={peer} />
-          ))}
+        {/* Participants + Chat sidebar */}
+        <div
+          className={`${
+            activeScreen ? "w-64 border-l" : "flex-1"
+          } flex flex-col`}
+        >
+          <div
+            className={`flex-1 flex items-center justify-center p-4 ${
+              activeScreen ? "overflow-y-auto" : ""
+            }`}
+          >
+            <div
+              className={`flex flex-wrap gap-3 justify-center ${
+                activeScreen ? "flex-col items-center" : ""
+              }`}
+            >
+              <ParticipantCard
+                displayName={displayName}
+                isLocal
+                isMuted={muted}
+                isSpeaking={localSpeaking}
+                level={localLevel}
+                compact={!!activeScreen}
+              />
 
-          {aiActiveInRoom && (
-            <div className="flex flex-col items-center gap-2.5 p-5 rounded-2xl border border-primary/50 bg-card text-card-foreground w-[130px]">
-              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/10 animate-pulse">
-                <span className="text-2xl">🤖</span>
-              </div>
-              <div className="w-full h-1 bg-primary/20 rounded-full" />
-              <span className="text-sm font-medium">AI Agent</span>
-              {aiActive && aiStatus && (
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  {aiStatus}
-                </span>
+              {Array.from(peers.entries()).map(([peerId, peer]) => (
+                <PeerAudio
+                  key={peerId}
+                  peer={peer}
+                  compact={!!activeScreen}
+                />
+              ))}
+
+              {aiActiveInRoom && (
+                <div
+                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border border-primary/50 bg-card ${
+                    activeScreen ? "w-full" : "w-[130px]"
+                  }`}
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 animate-pulse">
+                    <span className="text-xl">🤖</span>
+                  </div>
+                  <span className="text-xs font-medium">AI Agent</span>
+                  {aiActive && aiStatus && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {aiStatus}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </div>
+
+        {/* Chat panel */}
+        {chatOpen && (
+          <div className="absolute bottom-24 right-4 z-40">
+            <Chat
+              messages={chatMessages}
+              myPeerId={myPeerId}
+              onSend={sendChat}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Controls */}
@@ -136,9 +210,17 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         aiActive={aiActive}
         aiActiveInRoom={aiActiveInRoom}
         aiStatus={aiStatus}
+        isScreenSharing={!!screenStream}
+        chatOpen={chatOpen}
         onToggleMute={toggleMute}
         onToggleAi={handleToggleAi}
+        onToggleScreenShare={() =>
+          screenStream ? stopScreenShare() : startScreenShare()
+        }
+        onToggleChat={() => setChatOpen(!chatOpen)}
+        onSendEmoji={sendEmoji}
         onLeave={handleLeave}
+        unreadCount={unreadCount}
       />
     </div>
   );
@@ -146,8 +228,15 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 
 function PeerAudio({
   peer,
+  compact,
 }: {
-  peer: { displayName: string; stream: MediaStream | null; connectionState: string };
+  peer: {
+    displayName: string;
+    stream: MediaStream | null;
+    screenStream: MediaStream | null;
+    connectionState: string;
+  };
+  compact?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const { speaking, level } = useAudioLevel(peer.stream);
@@ -165,8 +254,28 @@ function PeerAudio({
         isSpeaking={speaking}
         level={level}
         connectionState={peer.connectionState}
+        compact={compact}
       />
       <audio ref={audioRef} autoPlay playsInline style={{ display: "none" }} />
     </>
+  );
+}
+
+function ScreenVideo({ stream }: { stream: MediaStream }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      className="max-w-full max-h-full rounded-lg"
+    />
   );
 }
