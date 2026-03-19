@@ -55,6 +55,11 @@ export function useWebRTC(roomId: string, displayName: string) {
   useEffect(() => {
     let cancelled = false;
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.error("getUserMedia not available — HTTPS required");
+      return;
+    }
+
     navigator.mediaDevices
       .getUserMedia({
         audio: {

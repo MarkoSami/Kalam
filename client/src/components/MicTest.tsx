@@ -12,6 +12,10 @@ export function MicTest({ onClose }: { onClose: () => void }) {
 
   const start = async () => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("Microphone requires HTTPS. Access this site via https://");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: false,
