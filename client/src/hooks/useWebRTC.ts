@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSignaling, type SignalingMessage } from "./useSignaling";
+import { playJoinSound, playLeaveSound } from "@/lib/sounds";
 
 export type PeerState = {
   displayName: string;
@@ -209,6 +210,8 @@ export function useWebRTC(roomId: string, displayName: string) {
       return next;
     });
 
+    playJoinSound();
+
     // Don't create offer — the newcomer will offer to us
   }
 
@@ -222,6 +225,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     }
 
     aiSendersRef.current.delete(peerId);
+    playLeaveSound();
 
     setPeers((prev) => {
       const next = new Map(prev);

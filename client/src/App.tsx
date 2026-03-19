@@ -37,6 +37,11 @@ function App() {
     }
   };
 
+  const handleCreateRoom = () => {
+    const token = crypto.randomUUID().slice(0, 8);
+    setRoomId(token);
+  };
+
   return (
     <div className="flex items-center justify-center min-h-screen">
       <form
@@ -56,13 +61,24 @@ function App() {
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         />
 
-        <input
-          type="text"
-          placeholder="Room ID"
-          value={roomId}
-          onChange={(e) => setRoomId(e.target.value)}
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        />
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Room ID"
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCreateRoom}
+            className="shrink-0"
+          >
+            Generate
+          </Button>
+        </div>
 
         <Button type="submit" disabled={!roomId.trim() || !displayName.trim()}>
           Join Room

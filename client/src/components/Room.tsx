@@ -23,13 +23,22 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     leave,
   } = useWebRTC(roomId, displayName);
 
-  const { aiActive, aiStatus, startAi, stopAi } = useElevenLabs({
+  const { aiActive, aiStatus, startAi, stopAi, updateMix } = useElevenLabs({
     addAiTrack,
     removeAiTrack,
+    localStream,
+    peers,
   });
 
   const { speaking: localSpeaking, level: localLevel } =
     useAudioLevel(localStream);
+
+  // Update AI audio mix when peers change
+  useEffect(() => {
+    if (aiActive) {
+      updateMix(peers);
+    }
+  }, [peers, aiActive, updateMix]);
 
   const handleLeave = () => {
     stopAi();
@@ -45,33 +54,8 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     }
   };
 
-  const streamInfo = localStream
-    ? (() => {
-        const t = localStream.getAudioTracks()[0];
-        return t
-          ? `${t.label} | ${t.readyState} | enabled:${t.enabled}`
-          : "no tracks";
-      })()
-    : "null";
-
   return (
     <div className="flex flex-col h-screen">
-      {/* Debug bar */}
-      <div className="px-6 py-2 bg-muted/50 border-b text-xs font-mono space-y-1">
-        <div>stream: {streamInfo}</div>
-        <div className="flex items-center gap-2">
-          <span>level:</span>
-          <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-green-500 rounded-full transition-all duration-75"
-              style={{ width: `${localLevel * 100}%` }}
-            />
-          </div>
-          <span>{(localLevel * 100).toFixed(0)}%</span>
-          <span>{localSpeaking ? "SPEAKING" : ""}</span>
-        </div>
-      </div>
-
       <div className="flex items-center justify-between px-6 py-4 border-b">
         <div>
           <h1 className="text-lg font-semibold">Room: {roomId}</h1>
