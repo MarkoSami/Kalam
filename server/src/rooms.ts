@@ -16,6 +16,11 @@ export function joinRoom(
   displayName: string,
   socket: WebSocket
 ) {
+  // If this socket already has a peer, leave the old room first
+  if (socketToPeer.has(socket)) {
+    leaveRoom(socket);
+  }
+
   const peerId = randomUUID();
 
   if (!rooms.has(roomId)) {
