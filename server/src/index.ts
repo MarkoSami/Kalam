@@ -25,12 +25,15 @@ async function start() {
 
   // Serve built client files in production
   const clientDist = resolve(__dirname, "..", "..", "client", "dist");
+  app.log.info(`Client dist path: ${clientDist}`);
+  app.log.info(`Client dist exists: ${existsSync(clientDist)}`);
   if (existsSync(clientDist)) {
     await app.register(fastifyStatic, {
       root: clientDist,
-      prefix: "/",
-      wildcard: false,
     });
+    app.log.info("Static file serving enabled");
+  } else {
+    app.log.warn("Client dist not found — static files not served");
   }
 
   app.get("/health", async () => ({ status: "ok" }));
@@ -83,7 +86,7 @@ async function start() {
   // SPA catch-all: serve index.html for any unmatched route
   if (existsSync(clientDist)) {
     app.setNotFoundHandler(async (_request, reply) => {
-      return reply.sendFile("index.html");
+      return reply.sendFile("index.html", clientDist);
     });
   }
 
