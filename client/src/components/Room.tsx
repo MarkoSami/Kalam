@@ -32,10 +32,14 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     cameraOn,
     chatMessages,
     emojiReactions,
+    raisedHands,
+    videoQuality,
     toggleMute,
     toggleCamera,
     switchMic,
     switchCamera,
+    raiseHand,
+    changeVideoQuality,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
@@ -95,13 +99,13 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     Array.from(peers.values()).find((p) => p.screenStream)?.screenStream ||
     null;
 
-  const videoFeeds: { label: string; stream: MediaStream }[] = [];
+  const videoFeeds: { label: string; stream: MediaStream; isSelf: boolean }[] = [];
   if (cameraStream) {
-    videoFeeds.push({ label: `${displayName} (You)`, stream: cameraStream });
+    videoFeeds.push({ label: `${displayName} (You)`, stream: cameraStream, isSelf: true });
   }
   for (const [, peer] of peers) {
     if (peer.videoStream) {
-      videoFeeds.push({ label: peer.displayName, stream: peer.videoStream });
+      videoFeeds.push({ label: peer.displayName, stream: peer.videoStream, isSelf: false });
     }
   }
 
@@ -162,8 +166,8 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
                   >
                     <VideoElement
                       stream={feed.stream}
-                      muted={feed.label.includes("(You)")}
-                      className="w-full h-full object-cover"
+                      muted={feed.isSelf}
+                      className={`w-full h-full object-cover ${feed.isSelf ? "scale-x-[-1]" : ""}`}
                     />
                     <span className="absolute bottom-1 left-2 text-[10px] text-white bg-black/50 px-1.5 py-0.5 rounded">
                       {feed.label}
@@ -196,10 +200,11 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
                 isSpeaking={localSpeaking}
                 level={localLevel}
                 compact={hasVideo}
+                handRaised={raisedHands.has(myPeerId || "local")}
               />
 
               {Array.from(peers.entries()).map(([peerId, peer]) => (
-                <PeerAudio key={peerId} peer={peer} compact={hasVideo} />
+                <PeerAudio key={peerId} peer={peer} compact={hasVideo} handRaised={raisedHands.has(peerId)} />
               ))}
 
               {aiActiveInRoom && (
@@ -231,6 +236,8 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
               selectedMic={devices.selectedMic}
               selectedCamera={devices.selectedCamera}
               selectedSpeaker={devices.selectedSpeaker}
+              videoQuality={videoQuality}
+              onChangeVideoQuality={changeVideoQuality}
               onChangeMic={(id) => {
                 devices.setSelectedMic(id);
                 switchMic(id);
@@ -279,6 +286,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         onToggleMute={toggleMute}
         onToggleCamera={toggleCamera}
         onToggleSettings={() => setSettingsOpen(!settingsOpen)}
+        onRaiseHand={raiseHand}
         onToggleAi={() => (aiActive ? stopAi() : startAi())}
         onToggleScreenShare={() =>
           screenStream ? stopScreenShare() : startScreenShare()
@@ -295,6 +303,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 function PeerAudio({
   peer,
   compact,
+  handRaised,
 }: {
   peer: {
     displayName: string;
@@ -304,6 +313,7 @@ function PeerAudio({
     connectionState: string;
   };
   compact?: boolean;
+  handRaised?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const { speaking, level } = useAudioLevel(peer.stream);
@@ -322,6 +332,7 @@ function PeerAudio({
         level={level}
         connectionState={peer.connectionState}
         compact={compact}
+        handRaised={handRaised}
       />
       <audio ref={audioRef} autoPlay playsInline style={{ display: "none" }} />
     </>

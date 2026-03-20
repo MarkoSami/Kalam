@@ -2,6 +2,18 @@ import { Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DeviceInfo } from "@/hooks/useDevices";
 
+export type VideoQuality = "low" | "medium" | "high" | "hd";
+
+export const VIDEO_QUALITY_PRESETS: Record<
+  VideoQuality,
+  { width: number; height: number; frameRate: number; label: string }
+> = {
+  low: { width: 320, height: 240, frameRate: 15, label: "Low (320x240 15fps)" },
+  medium: { width: 640, height: 480, frameRate: 24, label: "Medium (640x480 24fps)" },
+  high: { width: 1280, height: 720, frameRate: 30, label: "HD (720p 30fps)" },
+  hd: { width: 1920, height: 1080, frameRate: 30, label: "Full HD (1080p 30fps)" },
+};
+
 type DeviceSettingsProps = {
   microphones: DeviceInfo[];
   cameras: DeviceInfo[];
@@ -9,9 +21,11 @@ type DeviceSettingsProps = {
   selectedMic: string;
   selectedCamera: string;
   selectedSpeaker: string;
+  videoQuality: VideoQuality;
   onChangeMic: (deviceId: string) => void;
   onChangeCamera: (deviceId: string) => void;
   onChangeSpeaker: (deviceId: string) => void;
+  onChangeVideoQuality: (quality: VideoQuality) => void;
   onClose: () => void;
 };
 
@@ -55,17 +69,19 @@ export function DeviceSettings({
   selectedMic,
   selectedCamera,
   selectedSpeaker,
+  videoQuality,
   onChangeMic,
   onChangeCamera,
   onChangeSpeaker,
+  onChangeVideoQuality,
   onClose,
 }: DeviceSettingsProps) {
   return (
-    <div className="w-80 border rounded-2xl bg-card shadow-lg overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b">
+    <div className="w-80 border rounded-2xl bg-card shadow-lg overflow-hidden max-h-[70vh] overflow-y-auto">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b sticky top-0 bg-card z-10">
         <div className="flex items-center gap-1.5">
           <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium">Device Settings</span>
+          <span className="text-sm font-medium">Settings</span>
         </div>
         <Button
           variant="ghost"
@@ -96,6 +112,23 @@ export function DeviceSettings({
           selected={selectedSpeaker}
           onChange={onChangeSpeaker}
         />
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Video Quality
+          </label>
+          <select
+            value={videoQuality}
+            onChange={(e) => onChangeVideoQuality(e.target.value as VideoQuality)}
+            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
+              <option key={key} value={key}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );

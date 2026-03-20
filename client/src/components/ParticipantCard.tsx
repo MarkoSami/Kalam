@@ -8,6 +8,7 @@ type ParticipantCardProps = {
   level?: number;
   connectionState?: string;
   compact?: boolean;
+  handRaised?: boolean;
 };
 
 const COLORS = [
@@ -46,6 +47,7 @@ export function ParticipantCard({
   level = 0,
   connectionState,
   compact,
+  handRaised,
 }: ParticipantCardProps) {
   const isConnecting =
     connectionState === "new" || connectionState === "connecting";
@@ -61,13 +63,18 @@ export function ParticipantCard({
           isDisconnected && "opacity-50"
         )}
       >
-        <div
-          className={cn(
-            "flex items-center justify-center w-8 h-8 rounded-full text-white font-medium text-xs shrink-0",
-            getColor(displayName)
+        <div className="relative shrink-0">
+          <div
+            className={cn(
+              "flex items-center justify-center w-8 h-8 rounded-full text-white font-medium text-xs",
+              getColor(displayName)
+            )}
+          >
+            {getInitials(displayName)}
+          </div>
+          {handRaised && (
+            <span className="absolute -top-1 -right-1 text-sm animate-bounce">✋</span>
           )}
-        >
-          {getInitials(displayName)}
         </div>
         <div className="flex-1 min-w-0">
           <span className="text-xs font-medium truncate block">
@@ -93,14 +100,19 @@ export function ParticipantCard({
         isDisconnected && "opacity-50"
       )}
     >
-      <div
-        className={cn(
-          "flex items-center justify-center w-14 h-14 rounded-full text-white font-semibold text-lg transition-all duration-150",
-          getColor(displayName),
-          isSpeaking && !isMuted && "scale-110"
+      <div className="relative">
+        <div
+          className={cn(
+            "flex items-center justify-center w-14 h-14 rounded-full text-white font-semibold text-lg transition-all duration-150",
+            getColor(displayName),
+            isSpeaking && !isMuted && "scale-110"
+          )}
+        >
+          {getInitials(displayName)}
+        </div>
+        {handRaised && (
+          <span className="absolute -top-2 -right-2 text-xl animate-bounce">✋</span>
         )}
-      >
-        {getInitials(displayName)}
       </div>
 
       <div className="w-full h-1 bg-muted rounded-full overflow-hidden">

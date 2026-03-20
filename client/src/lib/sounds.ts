@@ -49,6 +49,47 @@ export function playLeaveSound() {
   playTone(659, 440, 0.12, 0.13); // E5 → A4
 }
 
+/** Whoosh sound for stream/camera starting */
+export function playStreamSound() {
+  const ctx = getCtx();
+  const now = ctx.currentTime;
+
+  const gain = ctx.createGain();
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0.12, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(800, now + 0.15);
+  osc.frequency.exponentialRampToValueAtTime(400, now + 0.3);
+  osc.connect(gain);
+  osc.start(now);
+  osc.stop(now + 0.3);
+}
+
+/** Ding-ding for raise hand */
+export function playRaiseHandSound() {
+  const ctx = getCtx();
+  const now = ctx.currentTime;
+
+  const gain = ctx.createGain();
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0.15, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+  // Three quick ascending notes
+  [880, 1047, 1319].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, now + i * 0.1);
+    osc.connect(gain);
+    osc.start(now + i * 0.1);
+    osc.stop(now + i * 0.1 + 0.12);
+  });
+}
+
 /** Short pop for chat message */
 export function playMessageSound() {
   const ctx = getCtx();

@@ -10,6 +10,7 @@ import {
   Video,
   VideoOff,
   Settings,
+  Hand,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmojiPicker } from "./EmojiReactions";
@@ -26,6 +27,7 @@ type ControlsProps = {
   onToggleMute: () => void;
   onToggleCamera: () => void;
   onToggleSettings: () => void;
+  onRaiseHand: () => void;
   onToggleAi: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
@@ -46,6 +48,7 @@ export function Controls({
   onToggleMute,
   onToggleCamera,
   onToggleSettings,
+  onRaiseHand,
   onToggleAi,
   onToggleScreenShare,
   onToggleChat,
@@ -101,6 +104,16 @@ export function Controls({
           ) : (
             <Monitor className="h-4 w-4" />
           )}
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onRaiseHand}
+          title="Raise hand"
+          className="rounded-full"
+        >
+          <Hand className="h-4 w-4" />
         </Button>
 
         <Button

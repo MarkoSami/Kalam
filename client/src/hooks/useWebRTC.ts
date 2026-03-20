@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSignaling, type SignalingMessage } from "./useSignaling";
-import { playJoinSound, playLeaveSound, playMessageSound } from "@/lib/sounds";
+import { playJoinSound, playLeaveSound, playMessageSound, playStreamSound, playRaiseHandSound } from "@/lib/sounds";
+import type { VideoQuality } from "@/components/DeviceSettings";
+import { VIDEO_QUALITY_PRESETS } from "@/components/DeviceSettings";
 
 export type ChatMessage = {
   id: string;
@@ -13,6 +15,11 @@ export type ChatMessage = {
 export type EmojiReaction = {
   id: string;
   emoji: string;
+  displayName: string;
+};
+
+export type RaisedHand = {
+  peerId: string;
   displayName: string;
 };
 
@@ -72,6 +79,8 @@ export function useWebRTC(
   const [cameraOn, setCameraOn] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
+  const [raisedHands, setRaisedHands] = useState<Set<string>>(new Set());
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>("medium");
   const cameraSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -126,6 +135,20 @@ export function useWebRTC(
         ]);
         playMessageSound();
         break;
+      case "raise-hand": {
+        const handPeerId = msg.peerId as string;
+        playRaiseHandSound();
+        setRaisedHands((prev) => new Set(prev).add(handPeerId));
+        // Auto-lower after 5s
+        setTimeout(() => {
+          setRaisedHands((prev) => {
+            const next = new Set(prev);
+            next.delete(handPeerId);
+            return next;
+          });
+        }, 5000);
+        break;
+      }
       case "emoji": {
         const reaction: EmojiReaction = {
           id: crypto.randomUUID(),
@@ -605,16 +628,19 @@ export function useWebRTC(
     } else {
       // Start camera
       try {
+        const preset = VIDEO_QUALITY_PRESETS[videoQuality];
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
+            width: { ideal: preset.width },
+            height: { ideal: preset.height },
+            frameRate: { ideal: preset.frameRate },
             ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : { facingMode: "user" }),
           },
           audio: false,
         });
         setCameraStream(stream);
         setCameraOn(true);
+        playStreamSound();
 
         const videoTrack = stream.getVideoTracks()[0];
         connectionsRef.current.forEach((pc, peerId) => {
@@ -639,6 +665,7 @@ export function useWebRTC(
         audio: false,
       });
       setScreenStream(stream);
+      playStreamSound();
 
       const videoTrack = stream.getVideoTracks()[0];
       connectionsRef.current.forEach((pc, peerId) => {
@@ -690,6 +717,51 @@ export function useWebRTC(
     ]);
   }, []);
 
+  const raiseHand = useCallback(() => {
+    sendRef.current({
+      type: "raise-hand",
+      displayName: displayNameRef.current,
+    });
+    // Show locally too
+    playRaiseHandSound();
+    const myId = myPeerIdRef.current || "local";
+    setRaisedHands((prev) => new Set(prev).add(myId));
+    setTimeout(() => {
+      setRaisedHands((prev) => {
+        const next = new Set(prev);
+        next.delete(myId);
+        return next;
+      });
+    }, 5000);
+  }, []);
+
+  const changeVideoQuality = useCallback(async (quality: VideoQuality) => {
+    setVideoQuality(quality);
+    if (!cameraStream || !cameraOn) return;
+
+    const preset = VIDEO_QUALITY_PRESETS[quality];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+          ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : { facingMode: "user" }),
+        },
+        audio: false,
+      });
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(stream);
+
+      const newTrack = stream.getVideoTracks()[0];
+      cameraSendersRef.current.forEach((sender) => {
+        sender.replaceTrack(newTrack);
+      });
+    } catch (err) {
+      console.error("[WebRTC] Failed to change quality:", err);
+    }
+  }, [cameraOn, cameraStream, cameraDeviceId]);
+
   const sendEmoji = useCallback((emoji: string) => {
     sendRef.current({
       type: "emoji",
@@ -728,10 +800,14 @@ export function useWebRTC(
     cameraOn,
     chatMessages,
     emojiReactions,
+    raisedHands,
+    videoQuality,
     toggleMute,
     toggleCamera,
     switchMic,
     switchCamera,
+    raiseHand,
+    changeVideoQuality,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
