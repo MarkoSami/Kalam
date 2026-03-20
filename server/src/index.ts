@@ -76,6 +76,7 @@ async function start() {
         case "chat":
         case "emoji":
         case "raise-hand":
+        case "camera-off":
           broadcastFromPeer(socket, msg);
           break;
         default:

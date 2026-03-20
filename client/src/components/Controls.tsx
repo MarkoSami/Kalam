@@ -60,10 +60,8 @@ export function Controls({
     aiStatus === "Connecting..." || (aiActiveInRoom && !aiActive);
 
   return (
-    <div className="flex flex-col items-center gap-2 p-4 pb-6">
-      <EmojiPicker onSelect={onSendEmoji} />
-
-      <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-muted/80 backdrop-blur-sm border">
+    <div className="flex justify-center p-4 pb-6">
+      <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-full bg-muted/80 backdrop-blur-sm border">
         <Button
           variant={muted ? "destructive" : "ghost"}
           size="icon"
@@ -71,11 +69,7 @@ export function Controls({
           title={muted ? "Unmute" : "Mute"}
           className="rounded-full"
         >
-          {muted ? (
-            <MicOff className="h-4 w-4" />
-          ) : (
-            <Mic className="h-4 w-4" />
-          )}
+          {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
         </Button>
 
         <Button
@@ -85,11 +79,7 @@ export function Controls({
           title={cameraOn ? "Turn off camera" : "Turn on camera"}
           className="rounded-full"
         >
-          {cameraOn ? (
-            <VideoOff className="h-4 w-4" />
-          ) : (
-            <Video className="h-4 w-4" />
-          )}
+          {cameraOn ? <VideoOff className="h-4 w-4" /> : <Video className="h-4 w-4" />}
         </Button>
 
         <Button
@@ -99,11 +89,7 @@ export function Controls({
           title={isScreenSharing ? "Stop sharing" : "Share screen"}
           className="rounded-full hidden sm:flex"
         >
-          {isScreenSharing ? (
-            <MonitorOff className="h-4 w-4" />
-          ) : (
-            <Monitor className="h-4 w-4" />
-          )}
+          {isScreenSharing ? <MonitorOff className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
         </Button>
 
         <Button
@@ -116,12 +102,14 @@ export function Controls({
           <Hand className="h-4 w-4" />
         </Button>
 
+        <EmojiPicker onSelect={onSendEmoji} />
+
         <Button
           variant={aiActive ? "default" : "ghost"}
           size="sm"
           onClick={onToggleAi}
           disabled={aiDisabled}
-          className="rounded-full gap-1.5"
+          className="rounded-full gap-1.5 hidden sm:flex"
           title={
             aiActiveInRoom && !aiActive
               ? "AI already active in this room"
@@ -130,18 +118,21 @@ export function Controls({
               : "Add AI to call"
           }
         >
-          {aiActive ? (
-            <BotOff className="h-4 w-4" />
-          ) : (
-            <Bot className="h-4 w-4" />
-          )}
+          {aiActive ? <BotOff className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
           <span className="text-xs">
-            {aiActive
-              ? "Remove AI"
-              : aiActiveInRoom
-              ? "AI Active"
-              : aiStatus || "AI"}
+            {aiActive ? "Remove AI" : aiActiveInRoom ? "AI Active" : aiStatus || "AI"}
           </span>
+        </Button>
+
+        {/* Mobile AI button (icon only) */}
+        <Button
+          variant={aiActive ? "default" : "ghost"}
+          size="icon"
+          onClick={onToggleAi}
+          disabled={aiDisabled}
+          className="rounded-full sm:hidden"
+        >
+          {aiActive ? <BotOff className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
         </Button>
 
         <div className="relative">

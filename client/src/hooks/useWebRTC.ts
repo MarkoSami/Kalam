@@ -135,6 +135,18 @@ export function useWebRTC(
         ]);
         playMessageSound();
         break;
+      case "camera-off": {
+        const camOffPeerId = msg.peerId as string;
+        setPeers((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(camOffPeerId);
+          if (existing) {
+            next.set(camOffPeerId, { ...existing, videoStream: null });
+          }
+          return next;
+        });
+        break;
+      }
       case "raise-hand": {
         const handPeerId = msg.peerId as string;
         playRaiseHandSound();
@@ -618,6 +630,11 @@ export function useWebRTC(
       setCameraStream(null);
       setCameraOn(false);
 
+      // Replace video senders with null track (no renegotiation)
+      cameraSendersRef.current.forEach((sender) => {
+        sender.replaceTrack(null);
+      });
+      // Then remove senders
       cameraSendersRef.current.forEach((sender, peerId) => {
         const pc = connectionsRef.current.get(peerId);
         if (pc) {
@@ -625,6 +642,9 @@ export function useWebRTC(
         }
       });
       cameraSendersRef.current.clear();
+
+      // Tell peers to clear video
+      sendRef.current({ type: "camera-off" });
     } else {
       // Start camera
       try {
@@ -660,8 +680,13 @@ export function useWebRTC(
 
   const startScreenShare = useCallback(async () => {
     try {
+      const preset = VIDEO_QUALITY_PRESETS[videoQuality];
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        video: {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+        },
         audio: false,
       });
       setScreenStream(stream);
@@ -722,8 +747,7 @@ export function useWebRTC(
       type: "raise-hand",
       displayName: displayNameRef.current,
     });
-    // Show locally too
-    playRaiseHandSound();
+    // Show locally (no sound for self)
     const myId = myPeerIdRef.current || "local";
     setRaisedHands((prev) => new Set(prev).add(myId));
     setTimeout(() => {

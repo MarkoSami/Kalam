@@ -344,7 +344,7 @@ function VideoElement({
   muted,
   className,
 }: {
-  stream: MediaStream;
+  stream: MediaStream | null;
   muted?: boolean;
   className?: string;
 }) {
@@ -353,6 +353,9 @@ function VideoElement({
   useEffect(() => {
     if (ref.current) {
       ref.current.srcObject = stream;
+      if (!stream) {
+        ref.current.load(); // Clear stuck frame
+      }
     }
   }, [stream]);
 

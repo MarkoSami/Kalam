@@ -1,24 +1,51 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { SmilePlus, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { EmojiReaction } from "@/hooks/useWebRTC";
 
-const EMOJIS = ["👍", "❤️", "😂", "🔥", "👏", "🎉", "😮", "💀"];
+const EMOJIS = ["👍", "❤️", "😂", "🔥", "👏", "🎉", "😮", "💀", "🙌", "💯", "😍", "🤔"];
 
 type EmojiPickerProps = {
   onSelect: (emoji: string) => void;
 };
 
 export function EmojiPicker({ onSelect }: EmojiPickerProps) {
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setOpen(true)}
+        className="rounded-full"
+        title="Send reaction"
+      >
+        <SmilePlus className="h-4 w-4" />
+      </Button>
+    );
+  }
+
   return (
-    <div className="flex gap-1">
+    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-card border shadow-lg animate-in fade-in zoom-in-95 duration-150">
       {EMOJIS.map((emoji) => (
         <button
           key={emoji}
-          onClick={() => onSelect(emoji)}
-          className="w-8 h-8 rounded-full hover:bg-muted flex items-center justify-center text-lg transition-transform hover:scale-125 active:scale-95"
+          onClick={() => {
+            onSelect(emoji);
+            setOpen(false);
+          }}
+          className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-base transition-transform hover:scale-125 active:scale-95"
         >
           {emoji}
         </button>
       ))}
+      <button
+        onClick={() => setOpen(false)}
+        className="w-6 h-6 rounded-full hover:bg-muted flex items-center justify-center ml-0.5"
+      >
+        <X className="h-3 w-3 text-muted-foreground" />
+      </button>
     </div>
   );
 }
@@ -38,7 +65,6 @@ export function FloatingEmojis({ reactions }: FloatingEmojisProps) {
 }
 
 function FloatingEmoji({ reaction }: { reaction: EmojiReaction }) {
-  // Stable random position based on ID — won't change on re-render
   const left = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < reaction.id.length; i++) {
