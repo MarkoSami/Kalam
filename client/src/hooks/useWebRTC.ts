@@ -137,10 +137,13 @@ export function useWebRTC(
         break;
       case "camera-off": {
         const camOffPeerId = msg.peerId as string;
+        console.log(`[WebRTC] Peer ${camOffPeerId} turned off camera`);
         setPeers((prev) => {
           const next = new Map(prev);
           const existing = next.get(camOffPeerId);
           if (existing) {
+            // Stop any active video tracks from this peer's video stream
+            existing.videoStream?.getTracks().forEach((t) => t.stop());
             next.set(camOffPeerId, { ...existing, videoStream: null });
           }
           return next;
@@ -149,6 +152,7 @@ export function useWebRTC(
       }
       case "raise-hand": {
         const handPeerId = msg.peerId as string;
+        console.log(`[WebRTC] Peer ${handPeerId} raised hand`);
         playRaiseHandSound();
         setRaisedHands((prev) => new Set(prev).add(handPeerId));
         // Auto-lower after 5s

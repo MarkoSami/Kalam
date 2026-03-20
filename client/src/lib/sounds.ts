@@ -69,24 +69,24 @@ export function playStreamSound() {
   osc.stop(now + 0.3);
 }
 
-/** Ding-ding for raise hand */
+/** Loud ding-ding-ding for raise hand */
 export function playRaiseHandSound() {
   const ctx = getCtx();
   const now = ctx.currentTime;
 
-  const gain = ctx.createGain();
-  gain.connect(ctx.destination);
-  gain.gain.setValueAtTime(0.15, now);
-  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+  // Three ascending bell-like tones, louder
+  [880, 1100, 1320].forEach((freq, i) => {
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.3, now + i * 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.3);
 
-  // Three quick ascending notes
-  [880, 1047, 1319].forEach((freq, i) => {
     const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(freq, now + i * 0.1);
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(freq, now + i * 0.15);
     osc.connect(gain);
-    osc.start(now + i * 0.1);
-    osc.stop(now + i * 0.1 + 0.12);
+    osc.start(now + i * 0.15);
+    osc.stop(now + i * 0.15 + 0.25);
   });
 }
 
