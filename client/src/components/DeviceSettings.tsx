@@ -8,11 +8,11 @@ export const VIDEO_QUALITY_PRESETS: Record<
   VideoQuality,
   { width: number; height: number; frameRate: number; maxBitrate: number; label: string }
 > = {
-  low: { width: 640, height: 480, frameRate: 15, maxBitrate: 500_000, label: "Low (480p 15fps)" },
-  medium: { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_500_000, label: "HD (720p 30fps)" },
-  high: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 6_000_000, label: "Full HD (1080p 30fps)" },
-  hd: { width: 1920, height: 1080, frameRate: 60, maxBitrate: 8_000_000, label: "Full HD (1080p 60fps)" },
-  source: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 15_000_000, label: "Source (4K 60fps)" },
+  low: { width: 640, height: 480, frameRate: 15, maxBitrate: 500_000, label: "480p 15fps" },
+  medium: { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_500_000, label: "720p 30fps" },
+  high: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 6_000_000, label: "1080p 30fps" },
+  hd: { width: 1920, height: 1080, frameRate: 60, maxBitrate: 8_000_000, label: "1080p 60fps" },
+  source: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 15_000_000, label: "4K 60fps" },
 };
 
 type DeviceSettingsProps = {
@@ -22,11 +22,13 @@ type DeviceSettingsProps = {
   selectedMic: string;
   selectedCamera: string;
   selectedSpeaker: string;
-  videoQuality: VideoQuality;
+  cameraQuality: VideoQuality;
+  screenQuality: VideoQuality;
   onChangeMic: (deviceId: string) => void;
   onChangeCamera: (deviceId: string) => void;
   onChangeSpeaker: (deviceId: string) => void;
-  onChangeVideoQuality: (quality: VideoQuality) => void;
+  onChangeCameraQuality: (quality: VideoQuality) => void;
+  onChangeScreenQuality: (quality: VideoQuality) => void;
   onClose: () => void;
 };
 
@@ -63,6 +65,35 @@ function DeviceSelect({
   );
 }
 
+function QualitySelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: VideoQuality;
+  onChange: (q: VideoQuality) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        {label}
+      </label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as VideoQuality)}
+        className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
+          <option key={key} value={key}>
+            {preset.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function DeviceSettings({
   microphones,
   cameras,
@@ -70,11 +101,13 @@ export function DeviceSettings({
   selectedMic,
   selectedCamera,
   selectedSpeaker,
-  videoQuality,
+  cameraQuality,
+  screenQuality,
   onChangeMic,
   onChangeCamera,
   onChangeSpeaker,
-  onChangeVideoQuality,
+  onChangeCameraQuality,
+  onChangeScreenQuality,
   onClose,
 }: DeviceSettingsProps) {
   return (
@@ -95,6 +128,7 @@ export function DeviceSettings({
       </div>
 
       <div className="p-4 space-y-4">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Devices</p>
         <DeviceSelect
           label="Microphone"
           devices={microphones}
@@ -114,21 +148,20 @@ export function DeviceSettings({
           onChange={onChangeSpeaker}
         />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Video Quality
-          </label>
-          <select
-            value={videoQuality}
-            onChange={(e) => onChangeVideoQuality(e.target.value as VideoQuality)}
-            className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
-              <option key={key} value={key}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
+        <div className="border-t pt-4">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-3">Quality</p>
+          <div className="space-y-4">
+            <QualitySelect
+              label="Camera Quality"
+              value={cameraQuality}
+              onChange={onChangeCameraQuality}
+            />
+            <QualitySelect
+              label="Screen Share Quality"
+              value={screenQuality}
+              onChange={onChangeScreenQuality}
+            />
+          </div>
         </div>
       </div>
     </div>

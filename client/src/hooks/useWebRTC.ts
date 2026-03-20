@@ -80,7 +80,8 @@ export function useWebRTC(
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
   const [raisedHands, setRaisedHands] = useState<Set<string>>(new Set());
-  const [videoQuality, setVideoQuality] = useState<VideoQuality>("medium");
+  const [cameraQuality, setCameraQuality] = useState<VideoQuality>("medium");
+  const [screenQuality, setScreenQuality] = useState<VideoQuality>("high");
   const cameraSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -675,7 +676,7 @@ export function useWebRTC(
     } else {
       // Start camera
       try {
-        const preset = VIDEO_QUALITY_PRESETS[videoQuality];
+        const preset = VIDEO_QUALITY_PRESETS[cameraQuality];
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { min: 640, ideal: preset.width },
@@ -710,7 +711,7 @@ export function useWebRTC(
 
   const startScreenShare = useCallback(async () => {
     try {
-      const preset = VIDEO_QUALITY_PRESETS[videoQuality];
+      const preset = VIDEO_QUALITY_PRESETS[screenQuality];
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: preset.width },
@@ -798,8 +799,8 @@ export function useWebRTC(
     }, 5000);
   }, []);
 
-  const changeVideoQuality = useCallback(async (quality: VideoQuality) => {
-    setVideoQuality(quality);
+  const changeCameraQuality = useCallback(async (quality: VideoQuality) => {
+    setCameraQuality(quality);
     if (!cameraStream || !cameraOn) return;
 
     const preset = VIDEO_QUALITY_PRESETS[quality];
@@ -821,12 +822,21 @@ export function useWebRTC(
         sender.replaceTrack(newTrack);
       });
 
-      // Apply new bitrate
       setTimeout(() => applyVideoBitrate(preset.maxBitrate), 500);
     } catch (err) {
       console.error("[WebRTC] Failed to change quality:", err);
     }
-  }, [cameraOn, cameraStream, cameraDeviceId]);
+  }, [cameraOn, cameraStream, cameraDeviceId, applyVideoBitrate]);
+
+  const changeScreenQuality = useCallback((quality: VideoQuality) => {
+    setScreenQuality(quality);
+    // Will apply on next screen share start
+    // If currently sharing, apply bitrate immediately
+    if (screenSendersRef.current.size > 0) {
+      const preset = VIDEO_QUALITY_PRESETS[quality];
+      applyVideoBitrate(preset.maxBitrate);
+    }
+  }, [applyVideoBitrate]);
 
   const sendEmoji = useCallback((emoji: string) => {
     sendRef.current({
@@ -867,13 +877,15 @@ export function useWebRTC(
     chatMessages,
     emojiReactions,
     raisedHands,
-    videoQuality,
+    cameraQuality,
+    screenQuality,
     toggleMute,
     toggleCamera,
     switchMic,
     switchCamera,
     raiseHand,
-    changeVideoQuality,
+    changeCameraQuality,
+    changeScreenQuality,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,

@@ -33,13 +33,15 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     chatMessages,
     emojiReactions,
     raisedHands,
-    videoQuality,
+    cameraQuality,
+    screenQuality,
     toggleMute,
     toggleCamera,
     switchMic,
     switchCamera,
     raiseHand,
-    changeVideoQuality,
+    changeCameraQuality,
+    changeScreenQuality,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
@@ -236,8 +238,10 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
               selectedMic={devices.selectedMic}
               selectedCamera={devices.selectedCamera}
               selectedSpeaker={devices.selectedSpeaker}
-              videoQuality={videoQuality}
-              onChangeVideoQuality={changeVideoQuality}
+              cameraQuality={cameraQuality}
+              screenQuality={screenQuality}
+              onChangeCameraQuality={changeCameraQuality}
+              onChangeScreenQuality={changeScreenQuality}
               onChangeMic={(id) => {
                 devices.setSelectedMic(id);
                 switchMic(id);
