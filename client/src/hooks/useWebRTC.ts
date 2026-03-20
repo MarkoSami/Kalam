@@ -396,6 +396,18 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     if (!pc) {
       pc = createPeerConnection(fromPeerId);
+      // Ensure peer is in state (offer may arrive before peer-joined)
+      setPeers((prev) => {
+        if (prev.has(fromPeerId)) return prev;
+        const next = new Map(prev);
+        next.set(fromPeerId, {
+          displayName: "Connecting...",
+          stream: null,
+          screenStream: null,
+          connectionState: "new",
+        });
+        return next;
+      });
     }
 
     try {

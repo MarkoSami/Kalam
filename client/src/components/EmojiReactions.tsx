@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { EmojiReaction } from "@/hooks/useWebRTC";
 
 const EMOJIS = ["👍", "❤️", "😂", "🔥", "👏", "🎉", "😮", "💀"];
@@ -37,19 +38,27 @@ export function FloatingEmojis({ reactions }: FloatingEmojisProps) {
 }
 
 function FloatingEmoji({ reaction }: { reaction: EmojiReaction }) {
-  const left = 10 + Math.random() * 80;
+  // Stable random position based on ID — won't change on re-render
+  const left = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < reaction.id.length; i++) {
+      hash = reaction.id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return 10 + (Math.abs(hash) % 80);
+  }, [reaction.id]);
 
   return (
     <div
       className="absolute animate-float-up"
       style={{
         left: `${left}%`,
-        bottom: "80px",
+        bottom: "100px",
+        willChange: "transform, opacity",
       }}
     >
-      <div className="flex flex-col items-center">
+      <div className="flex flex-col items-center gap-0.5">
         <span className="text-4xl drop-shadow-lg">{reaction.emoji}</span>
-        <span className="text-[10px] text-foreground/60 font-medium bg-background/80 px-1.5 py-0.5 rounded-full">
+        <span className="text-[10px] text-foreground/60 font-medium bg-background/80 px-1.5 py-0.5 rounded-full whitespace-nowrap">
           {reaction.displayName}
         </span>
       </div>
