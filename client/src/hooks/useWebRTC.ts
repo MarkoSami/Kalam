@@ -27,22 +27,31 @@ const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:80",
+      username: "b093b4e20fe0f2a4bf62b5e3",
+      credential: "uLnpYOz8TYMYCz6H",
     },
     {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+      username: "b093b4e20fe0f2a4bf62b5e3",
+      credential: "uLnpYOz8TYMYCz6H",
     },
     {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:443",
+      username: "b093b4e20fe0f2a4bf62b5e3",
+      credential: "uLnpYOz8TYMYCz6H",
+    },
+    {
+      urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+      username: "b093b4e20fe0f2a4bf62b5e3",
+      credential: "uLnpYOz8TYMYCz6H",
     },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export function useWebRTC(roomId: string, displayName: string) {
@@ -55,7 +64,6 @@ export function useWebRTC(roomId: string, displayName: string) {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
-  const screenSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -64,6 +72,7 @@ export function useWebRTC(roomId: string, displayName: string) {
   const joinedRef = useRef(false);
   const roomIdRef = useRef(roomId);
   const displayNameRef = useRef(displayName);
+  const screenSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
   roomIdRef.current = roomId;
   displayNameRef.current = displayName;
 
@@ -107,34 +116,28 @@ export function useWebRTC(roomId: string, displayName: string) {
           },
         ]);
         break;
-      case "emoji":
-        {
-          const reaction: EmojiReaction = {
-            id: crypto.randomUUID(),
-            emoji: msg.emoji as string,
-            displayName: msg.displayName as string,
-          };
-          setEmojiReactions((prev) => [...prev, reaction]);
-          setTimeout(() => {
-            setEmojiReactions((prev) =>
-              prev.filter((r) => r.id !== reaction.id)
-            );
-          }, 3000);
-        }
+      case "emoji": {
+        const reaction: EmojiReaction = {
+          id: crypto.randomUUID(),
+          emoji: msg.emoji as string,
+          displayName: msg.displayName as string,
+        };
+        setEmojiReactions((prev) => [...prev, reaction]);
+        setTimeout(() => {
+          setEmojiReactions((prev) => prev.filter((r) => r.id !== reaction.id));
+        }, 3000);
         break;
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onReconnect = useCallback(() => {
-    // Re-join the room after WebSocket reconnects
     console.log("[WebRTC] Reconnecting to room", roomIdRef.current);
     joinedRef.current = false;
-    // Close stale connections
     connectionsRef.current.forEach((pc) => pc.close());
     connectionsRef.current.clear();
     setPeers(new Map());
-    // Re-join
     sendRef.current({
       type: "join",
       roomId: roomIdRef.current,
@@ -151,7 +154,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     let cancelled = false;
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      console.error("getUserMedia not available — HTTPS required");
+      console.error("[WebRTC] getUserMedia not available — HTTPS required");
       return;
     }
 
@@ -171,8 +174,9 @@ export function useWebRTC(roomId: string, displayName: string) {
         }
         localStreamRef.current = stream;
         setLocalStream(stream);
+        console.log("[WebRTC] Got mic stream");
       })
-      .catch((err) => console.error("Failed to get microphone:", err));
+      .catch((err) => console.error("[WebRTC] Failed to get microphone:", err));
 
     return () => {
       cancelled = true;
@@ -188,6 +192,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     if (connected && localStream && !joinedRef.current) {
       joinedRef.current = true;
       sendRef.current({ type: "join", roomId, displayName });
+      console.log("[WebRTC] Joining room", roomId);
     }
   }, [connected, localStream, roomId, displayName]);
 
@@ -200,7 +205,6 @@ export function useWebRTC(roomId: string, displayName: string) {
   }, []);
 
   function createPeerConnection(peerId: string): RTCPeerConnection {
-    // Close existing connection if any
     const existing = connectionsRef.current.get(peerId);
     if (existing) {
       existing.close();
@@ -225,15 +229,27 @@ export function useWebRTC(roomId: string, displayName: string) {
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE ${peerId}: ${pc.iceConnectionState}`);
+    };
+
     pc.ontrack = (event) => {
       const track = event.track;
       const [remoteStream] = event.streams;
+      console.log(`[WebRTC] Got ${track.kind} track from ${peerId}`);
+
       setPeers((prev) => {
         const next = new Map(prev);
         const existing = next.get(peerId);
-        if (!existing) return next;
-
-        if (track.kind === "video") {
+        if (!existing) {
+          // Peer not in state yet — create entry
+          next.set(peerId, {
+            displayName: "Peer",
+            stream: track.kind === "audio" ? remoteStream : null,
+            screenStream: track.kind === "video" ? remoteStream : null,
+            connectionState: pc.connectionState,
+          });
+        } else if (track.kind === "video") {
           next.set(peerId, { ...existing, screenStream: remoteStream });
         } else {
           next.set(peerId, { ...existing, stream: remoteStream });
@@ -241,7 +257,6 @@ export function useWebRTC(roomId: string, displayName: string) {
         return next;
       });
 
-      // Clear screen stream when video track ends
       if (track.kind === "video") {
         track.onended = () => {
           setPeers((prev) => {
@@ -257,6 +272,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection ${peerId}: ${pc.connectionState}`);
       setPeers((prev) => {
         const next = new Map(prev);
         const existing = next.get(peerId);
@@ -269,13 +285,9 @@ export function useWebRTC(roomId: string, displayName: string) {
         return next;
       });
 
-      // Auto-cleanup failed connections
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      ) {
-        console.log(`[WebRTC] Peer ${peerId} connection ${pc.connectionState}`);
-        connectionsRef.current.delete(peerId);
+      if (pc.connectionState === "failed") {
+        console.log(`[WebRTC] Connection failed, attempting ICE restart for ${peerId}`);
+        pc.restartIce();
       }
     };
 
@@ -291,7 +303,7 @@ export function useWebRTC(roomId: string, displayName: string) {
           sdp: pc.localDescription!.toJSON(),
         });
       } catch (err) {
-        console.error("Renegotiation error:", err);
+        console.error("[WebRTC] Renegotiation error:", err);
       } finally {
         makingOfferRef.current.delete(peerId);
       }
@@ -309,6 +321,7 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     myPeerIdRef.current = peerId;
     setMyPeerId(peerId);
+    console.log(`[WebRTC] Joined as ${peerId}, ${existingPeers.length} peers in room`);
 
     for (const peer of existingPeers) {
       setPeers((prev) => {
@@ -332,8 +345,9 @@ export function useWebRTC(roomId: string, displayName: string) {
           targetPeerId: peer.peerId,
           sdp: pc.localDescription!.toJSON(),
         });
+        console.log(`[WebRTC] Sent offer to ${peer.peerId}`);
       } catch (err) {
-        console.error("Error creating offer:", err);
+        console.error("[WebRTC] Error creating offer:", err);
       }
     }
   }
@@ -341,14 +355,15 @@ export function useWebRTC(roomId: string, displayName: string) {
   function handlePeerJoined(msg: SignalingMessage) {
     const peerId = msg.peerId as string;
     const name = msg.displayName as string;
+    console.log(`[WebRTC] Peer joined: ${name} (${peerId})`);
 
     setPeers((prev) => {
       const next = new Map(prev);
       next.set(peerId, {
         displayName: name,
         stream: null,
-        connectionState: "new",
         screenStream: null,
+        connectionState: "new",
       });
       return next;
     });
@@ -358,6 +373,7 @@ export function useWebRTC(roomId: string, displayName: string) {
 
   function handlePeerLeft(msg: SignalingMessage) {
     const peerId = msg.peerId as string;
+    console.log(`[WebRTC] Peer left: ${peerId}`);
 
     const pc = connectionsRef.current.get(peerId);
     if (pc) {
@@ -373,7 +389,6 @@ export function useWebRTC(roomId: string, displayName: string) {
       return next;
     });
 
-    // If the peer who activated AI left, mark AI as stopped
     if (aiActivatedBy === peerId) {
       setAiActiveInRoom(false);
       setAiActivatedBy(null);
@@ -383,6 +398,7 @@ export function useWebRTC(roomId: string, displayName: string) {
   async function handleOffer(msg: SignalingMessage) {
     const fromPeerId = msg.fromPeerId as string;
     const sdp = msg.sdp as RTCSessionDescriptionInit;
+    console.log(`[WebRTC] Received offer from ${fromPeerId}`);
 
     let pc = connectionsRef.current.get(fromPeerId);
 
@@ -390,18 +406,21 @@ export function useWebRTC(roomId: string, displayName: string) {
       myPeerIdRef.current != null && myPeerIdRef.current < fromPeerId;
 
     if (pc && makingOfferRef.current.has(fromPeerId)) {
-      if (!isPolite) return;
+      if (!isPolite) {
+        console.log(`[WebRTC] Ignoring offer (impolite peer)`);
+        return;
+      }
       await pc.setLocalDescription({ type: "rollback" });
     }
 
     if (!pc) {
       pc = createPeerConnection(fromPeerId);
-      // Ensure peer is in state (offer may arrive before peer-joined)
+      // Ensure peer is in state
       setPeers((prev) => {
         if (prev.has(fromPeerId)) return prev;
         const next = new Map(prev);
         next.set(fromPeerId, {
-          displayName: "Connecting...",
+          displayName: "Peer",
           stream: null,
           screenStream: null,
           connectionState: "new",
@@ -420,8 +439,9 @@ export function useWebRTC(roomId: string, displayName: string) {
         targetPeerId: fromPeerId,
         sdp: pc.localDescription!.toJSON(),
       });
+      console.log(`[WebRTC] Sent answer to ${fromPeerId}`);
     } catch (err) {
-      console.error("Error handling offer:", err);
+      console.error("[WebRTC] Error handling offer:", err);
     }
   }
 
@@ -434,8 +454,9 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      console.log(`[WebRTC] Set answer from ${fromPeerId}`);
     } catch (err) {
-      console.error("Error handling answer:", err);
+      console.error("[WebRTC] Error handling answer:", err);
     }
   }
 
@@ -448,8 +469,8 @@ export function useWebRTC(roomId: string, displayName: string) {
 
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-      // Ignore ICE candidate errors for stale connections
+    } catch {
+      // Ignore stale ICE candidates
     }
   }
 
@@ -467,9 +488,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     (newTrack: MediaStreamTrack) => {
       connectionsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
-        if (sender) {
-          sender.replaceTrack(newTrack);
-        }
+        if (sender) sender.replaceTrack(newTrack);
       });
     },
     []
@@ -480,9 +499,7 @@ export function useWebRTC(roomId: string, displayName: string) {
     if (!originalTrack) return;
     connectionsRef.current.forEach((pc) => {
       const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
-      if (sender) {
-        sender.replaceTrack(originalTrack);
-      }
+      if (sender) sender.replaceTrack(originalTrack);
     });
   }, []);
 
@@ -508,19 +525,16 @@ export function useWebRTC(roomId: string, displayName: string) {
       setScreenStream(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
-
-      // Add screen track to all peer connections
       connectionsRef.current.forEach((pc, peerId) => {
         const sender = pc.addTrack(videoTrack, stream);
         screenSendersRef.current.set(peerId, sender);
       });
 
-      // When user stops sharing via browser UI
       videoTrack.onended = () => {
         stopScreenShare();
       };
     } catch (err) {
-      console.error("Screen share failed:", err);
+      console.error("[WebRTC] Screen share failed:", err);
     }
   }, []);
 
@@ -541,51 +555,41 @@ export function useWebRTC(roomId: string, displayName: string) {
     screenSendersRef.current.clear();
   }, [screenStream]);
 
-  const sendChat = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
-      sendRef.current({
-        type: "chat",
+  const sendChat = useCallback((text: string) => {
+    if (!text.trim()) return;
+    sendRef.current({
+      type: "chat",
+      displayName: displayNameRef.current,
+      text: text.trim(),
+    });
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        peerId: myPeerIdRef.current || "local",
         displayName: displayNameRef.current,
         text: text.trim(),
-      });
-      // Add to local messages too
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          peerId: myPeerIdRef.current || "local",
-          displayName: displayNameRef.current,
-          text: text.trim(),
-          timestamp: Date.now(),
-        },
-      ]);
-    },
-    []
-  );
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
 
-  const sendEmoji = useCallback(
-    (emoji: string) => {
-      sendRef.current({
-        type: "emoji",
-        displayName: displayNameRef.current,
-        emoji,
-      });
-      // Show locally too
-      const reaction: EmojiReaction = {
-        id: crypto.randomUUID(),
-        emoji,
-        displayName: displayNameRef.current,
-      };
-      setEmojiReactions((prev) => [...prev, reaction]);
-      setTimeout(() => {
-        setEmojiReactions((prev) =>
-          prev.filter((r) => r.id !== reaction.id)
-        );
-      }, 3000);
-    },
-    []
-  );
+  const sendEmoji = useCallback((emoji: string) => {
+    sendRef.current({
+      type: "emoji",
+      displayName: displayNameRef.current,
+      emoji,
+    });
+    const reaction: EmojiReaction = {
+      id: crypto.randomUUID(),
+      emoji,
+      displayName: displayNameRef.current,
+    };
+    setEmojiReactions((prev) => [...prev, reaction]);
+    setTimeout(() => {
+      setEmojiReactions((prev) => prev.filter((r) => r.id !== reaction.id));
+    }, 3000);
+  }, []);
 
   const leave = useCallback(() => {
     sendRef.current({ type: "leave" });

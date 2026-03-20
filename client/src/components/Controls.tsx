@@ -64,22 +64,19 @@ export function Controls({
           )}
         </Button>
 
-        {/* Hide screen share on mobile — getDisplayMedia not supported */}
-        {"getDisplayMedia" in (navigator.mediaDevices || {}) && (
-          <Button
-            variant={isScreenSharing ? "default" : "ghost"}
-            size="icon"
-            onClick={onToggleScreenShare}
-            title={isScreenSharing ? "Stop sharing" : "Share screen"}
-            className="rounded-full"
-          >
-            {isScreenSharing ? (
-              <MonitorOff className="h-4 w-4" />
-            ) : (
-              <Monitor className="h-4 w-4" />
-            )}
-          </Button>
-        )}
+        <Button
+          variant={isScreenSharing ? "default" : "ghost"}
+          size="icon"
+          onClick={onToggleScreenShare}
+          title={isScreenSharing ? "Stop sharing" : "Share screen"}
+          className="rounded-full hidden sm:flex"
+        >
+          {isScreenSharing ? (
+            <MonitorOff className="h-4 w-4" />
+          ) : (
+            <Monitor className="h-4 w-4" />
+          )}
+        </Button>
 
         <Button
           variant={aiActive ? "default" : "ghost"}
