@@ -8,6 +8,8 @@ import { Controls } from "./Controls";
 import { ParticipantCard } from "./ParticipantCard";
 import { Chat } from "./Chat";
 import { FloatingEmojis } from "./EmojiReactions";
+import { DeviceSettings } from "./DeviceSettings";
+import { useDevices } from "@/hooks/useDevices";
 
 type RoomProps = {
   roomId: string;
@@ -16,6 +18,8 @@ type RoomProps = {
 };
 
 export function Room({ roomId, displayName, onLeave }: RoomProps) {
+  const devices = useDevices();
+
   const {
     localStream,
     peers,
@@ -30,6 +34,8 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     emojiReactions,
     toggleMute,
     toggleCamera,
+    switchMic,
+    switchCamera,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
@@ -39,7 +45,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     sendChat,
     sendEmoji,
     leave,
-  } = useWebRTC(roomId, displayName);
+  } = useWebRTC(roomId, displayName, devices.selectedMic, devices.selectedCamera);
 
   const { aiActive, aiStatus, startAi, stopAi, updateMix } = useElevenLabs({
     replaceOutgoingTrack,
@@ -55,6 +61,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 
   const [copied, setCopied] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [lastReadCount, setLastReadCount] = useState(0);
 
   const unreadCount = chatOpen ? 0 : chatMessages.length - lastReadCount;
@@ -214,6 +221,38 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
           </div>
         </div>
 
+        {/* Settings panel */}
+        {settingsOpen && (
+          <div className="absolute bottom-28 left-2 sm:left-4 z-40">
+            <DeviceSettings
+              microphones={devices.microphones}
+              cameras={devices.cameras}
+              speakers={devices.speakers}
+              selectedMic={devices.selectedMic}
+              selectedCamera={devices.selectedCamera}
+              selectedSpeaker={devices.selectedSpeaker}
+              onChangeMic={(id) => {
+                devices.setSelectedMic(id);
+                switchMic(id);
+              }}
+              onChangeCamera={(id) => {
+                devices.setSelectedCamera(id);
+                if (cameraOn) switchCamera(id);
+              }}
+              onChangeSpeaker={(id) => {
+                devices.setSelectedSpeaker(id);
+                // Set sink on all audio elements
+                document.querySelectorAll("audio").forEach((el) => {
+                  if ("setSinkId" in el) {
+                    (el as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(id);
+                  }
+                });
+              }}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </div>
+        )}
+
         {/* Chat panel */}
         {chatOpen && (
           <div className="absolute bottom-28 right-2 sm:right-4 z-40">
@@ -236,8 +275,10 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
         aiStatus={aiStatus}
         isScreenSharing={!!screenStream}
         chatOpen={chatOpen}
+        settingsOpen={settingsOpen}
         onToggleMute={toggleMute}
         onToggleCamera={toggleCamera}
+        onToggleSettings={() => setSettingsOpen(!settingsOpen)}
         onToggleAi={() => (aiActive ? stopAi() : startAi())}
         onToggleScreenShare={() =>
           screenStream ? stopScreenShare() : startScreenShare()

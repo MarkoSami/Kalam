@@ -55,7 +55,12 @@ const ICE_SERVERS: RTCConfiguration = {
   iceCandidatePoolSize: 10,
 };
 
-export function useWebRTC(roomId: string, displayName: string) {
+export function useWebRTC(
+  roomId: string,
+  displayName: string,
+  micDeviceId?: string,
+  cameraDeviceId?: string
+) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<Map<string, PeerState>>(new Map());
   const [muted, setMuted] = useState(false);
@@ -169,6 +174,7 @@ export function useWebRTC(roomId: string, displayName: string) {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          ...(micDeviceId ? { deviceId: { exact: micDeviceId } } : {}),
         },
         video: false,
       })
@@ -502,6 +508,54 @@ export function useWebRTC(roomId: string, displayName: string) {
     }
   }, []);
 
+  const switchMic = useCallback(async (deviceId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: { exact: deviceId },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+      // Stop old tracks
+      localStreamRef.current?.getAudioTracks().forEach((t) => t.stop());
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+
+      const newTrack = stream.getAudioTracks()[0];
+      connectionsRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+        if (sender) sender.replaceTrack(newTrack);
+      });
+      console.log("[WebRTC] Switched mic to", deviceId);
+    } catch (err) {
+      console.error("[WebRTC] Failed to switch mic:", err);
+    }
+  }, []);
+
+  const switchCamera = useCallback(async (deviceId: string) => {
+    if (!cameraStream) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } },
+        audio: false,
+      });
+      // Stop old camera tracks
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(stream);
+
+      const newTrack = stream.getVideoTracks()[0];
+      cameraSendersRef.current.forEach((sender) => {
+        sender.replaceTrack(newTrack);
+      });
+      console.log("[WebRTC] Switched camera to", deviceId);
+    } catch (err) {
+      console.error("[WebRTC] Failed to switch camera:", err);
+    }
+  }, [cameraStream]);
+
   const replaceOutgoingTrack = useCallback(
     (newTrack: MediaStreamTrack) => {
       connectionsRef.current.forEach((pc) => {
@@ -552,7 +606,11 @@ export function useWebRTC(roomId: string, displayName: string) {
       // Start camera
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : { facingMode: "user" }),
+          },
           audio: false,
         });
         setCameraStream(stream);
@@ -672,6 +730,8 @@ export function useWebRTC(roomId: string, displayName: string) {
     emojiReactions,
     toggleMute,
     toggleCamera,
+    switchMic,
+    switchCamera,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,

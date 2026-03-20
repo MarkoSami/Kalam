@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Video,
   VideoOff,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmojiPicker } from "./EmojiReactions";
@@ -21,8 +22,10 @@ type ControlsProps = {
   aiStatus: string;
   isScreenSharing: boolean;
   chatOpen: boolean;
+  settingsOpen: boolean;
   onToggleMute: () => void;
   onToggleCamera: () => void;
+  onToggleSettings: () => void;
   onToggleAi: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
@@ -39,8 +42,10 @@ export function Controls({
   aiStatus,
   isScreenSharing,
   chatOpen,
+  settingsOpen,
   onToggleMute,
   onToggleCamera,
+  onToggleSettings,
   onToggleAi,
   onToggleScreenShare,
   onToggleChat,
@@ -142,6 +147,16 @@ export function Controls({
             </span>
           )}
         </div>
+
+        <Button
+          variant={settingsOpen ? "default" : "ghost"}
+          size="icon"
+          onClick={onToggleSettings}
+          title="Settings"
+          className="rounded-full"
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
 
         <Button
           variant="ghost"
