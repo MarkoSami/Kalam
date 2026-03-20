@@ -314,12 +314,12 @@ export function useWebRTC(
       });
 
       if (track.kind === "video") {
-        track.onended = () => {
+        const clearVideoTrack = () => {
+          console.log(`[WebRTC] Video track ended/muted from ${peerId}`);
           setPeers((prev) => {
             const next = new Map(prev);
             const existing = next.get(peerId);
             if (!existing) return next;
-            // Remove whichever video stream matches
             if (existing.videoStream?.id === remoteStream?.id) {
               next.set(peerId, { ...existing, videoStream: null });
             } else {
@@ -328,6 +328,8 @@ export function useWebRTC(
             return next;
           });
         };
+        track.onended = clearVideoTrack;
+        track.onmute = clearVideoTrack;
       }
     };
 

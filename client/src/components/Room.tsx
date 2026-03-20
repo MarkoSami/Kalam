@@ -349,15 +349,49 @@ function VideoElement({
   className?: string;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const [hasVideo, setHasVideo] = useState(true);
 
   useEffect(() => {
-    if (ref.current) {
-      ref.current.srcObject = stream;
-      if (!stream) {
-        ref.current.load(); // Clear stuck frame
-      }
+    const el = ref.current;
+    if (!el) return;
+
+    if (!stream) {
+      el.srcObject = null;
+      el.load();
+      setHasVideo(false);
+      return;
     }
+
+    el.srcObject = stream;
+    setHasVideo(true);
+
+    // Listen for tracks ending/muting
+    const tracks = stream.getVideoTracks();
+    const checkTrack = () => {
+      const alive = stream.getVideoTracks().some(
+        (t) => t.readyState === "live" && !t.muted
+      );
+      if (!alive) {
+        setHasVideo(false);
+        el.srcObject = null;
+        el.load();
+      }
+    };
+
+    tracks.forEach((t) => {
+      t.addEventListener("ended", checkTrack);
+      t.addEventListener("mute", checkTrack);
+    });
+
+    return () => {
+      tracks.forEach((t) => {
+        t.removeEventListener("ended", checkTrack);
+        t.removeEventListener("mute", checkTrack);
+      });
+    };
   }, [stream]);
+
+  if (!hasVideo) return null;
 
   return (
     <video
