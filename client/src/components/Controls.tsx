@@ -7,18 +7,22 @@ import {
   Monitor,
   MonitorOff,
   MessageCircle,
+  Video,
+  VideoOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmojiPicker } from "./EmojiReactions";
 
 type ControlsProps = {
   muted: boolean;
+  cameraOn: boolean;
   aiActive: boolean;
   aiActiveInRoom: boolean;
   aiStatus: string;
   isScreenSharing: boolean;
   chatOpen: boolean;
   onToggleMute: () => void;
+  onToggleCamera: () => void;
   onToggleAi: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
@@ -29,12 +33,14 @@ type ControlsProps = {
 
 export function Controls({
   muted,
+  cameraOn,
   aiActive,
   aiActiveInRoom,
   aiStatus,
   isScreenSharing,
   chatOpen,
   onToggleMute,
+  onToggleCamera,
   onToggleAi,
   onToggleScreenShare,
   onToggleChat,
@@ -61,6 +67,20 @@ export function Controls({
             <MicOff className="h-4 w-4" />
           ) : (
             <Mic className="h-4 w-4" />
+          )}
+        </Button>
+
+        <Button
+          variant={cameraOn ? "default" : "ghost"}
+          size="icon"
+          onClick={onToggleCamera}
+          title={cameraOn ? "Turn off camera" : "Turn on camera"}
+          className="rounded-full"
+        >
+          {cameraOn ? (
+            <VideoOff className="h-4 w-4" />
+          ) : (
+            <Video className="h-4 w-4" />
           )}
         </Button>
 

@@ -48,3 +48,22 @@ export function playJoinSound() {
 export function playLeaveSound() {
   playTone(659, 440, 0.12, 0.13); // E5 → A4
 }
+
+/** Short pop for chat message */
+export function playMessageSound() {
+  const ctx = getCtx();
+  const now = ctx.currentTime;
+
+  const gain = ctx.createGain();
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0.1, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(880, now);
+  osc.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
+  osc.connect(gain);
+  osc.start(now);
+  osc.stop(now + 0.1);
+}

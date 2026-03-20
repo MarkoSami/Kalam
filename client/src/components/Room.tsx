@@ -24,9 +24,12 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     connected,
     aiActiveInRoom,
     screenStream,
+    cameraStream,
+    cameraOn,
     chatMessages,
     emojiReactions,
     toggleMute,
+    toggleCamera,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
@@ -57,15 +60,11 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
   const unreadCount = chatOpen ? 0 : chatMessages.length - lastReadCount;
 
   useEffect(() => {
-    if (chatOpen) {
-      setLastReadCount(chatMessages.length);
-    }
+    if (chatOpen) setLastReadCount(chatMessages.length);
   }, [chatOpen, chatMessages.length]);
 
   useEffect(() => {
-    if (aiActive) {
-      updateMix(peers);
-    }
+    if (aiActive) updateMix(peers);
   }, [peers, aiActive, updateMix]);
 
   const handleLeave = () => {
@@ -73,14 +72,6 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     stopScreenShare();
     leave();
     onLeave();
-  };
-
-  const handleToggleAi = () => {
-    if (aiActive) {
-      stopAi();
-    } else {
-      startAi();
-    }
   };
 
   const handleCopyLink = () => {
@@ -91,28 +82,38 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
     });
   };
 
-  // Find any active screen share (local or remote)
+  // Collect all video feeds
   const activeScreen =
     screenStream ||
     Array.from(peers.values()).find((p) => p.screenStream)?.screenStream ||
     null;
 
+  const videoFeeds: { label: string; stream: MediaStream }[] = [];
+  if (cameraStream) {
+    videoFeeds.push({ label: `${displayName} (You)`, stream: cameraStream });
+  }
+  for (const [, peer] of peers) {
+    if (peer.videoStream) {
+      videoFeeds.push({ label: peer.displayName, stream: peer.videoStream });
+    }
+  }
+
+  const hasVideo = !!activeScreen || videoFeeds.length > 0;
+
   return (
     <div className="flex flex-col h-screen bg-background relative">
-      {/* Floating emoji reactions */}
       <FloatingEmojis reactions={emojiReactions} />
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b shrink-0">
         <div>
-          <h1 className="text-base font-semibold">{roomId}</h1>
+          <h1 className="text-sm sm:text-base font-semibold">{roomId}</h1>
           <p className="text-xs text-muted-foreground">
             {connected
               ? `${peers.size + 1} participant${peers.size > 0 ? "s" : ""}`
               : "Connecting..."}
           </p>
         </div>
-
         <Button
           variant="ghost"
           size="sm"
@@ -129,28 +130,56 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Screen share view */}
-        {activeScreen && (
-          <div className="flex-1 flex items-center justify-center bg-black p-4">
-            <ScreenVideo stream={activeScreen} />
+      <div className="flex-1 flex flex-col sm:flex-row overflow-hidden min-h-0">
+        {/* Video area */}
+        {hasVideo && (
+          <div className="flex-1 flex flex-col gap-2 p-2 sm:p-4 min-h-0">
+            {/* Screen share — full width */}
+            {activeScreen && (
+              <div className="flex-1 flex items-center justify-center bg-black rounded-lg overflow-hidden min-h-0">
+                <VideoElement stream={activeScreen} className="w-full h-full object-contain" />
+              </div>
+            )}
+
+            {/* Camera feeds grid */}
+            {videoFeeds.length > 0 && (
+              <div className={`flex gap-2 ${activeScreen ? "h-24 sm:h-32 shrink-0" : "flex-1"} overflow-x-auto`}>
+                {videoFeeds.map((feed, i) => (
+                  <div
+                    key={i}
+                    className={`relative bg-black rounded-lg overflow-hidden ${
+                      activeScreen
+                        ? "w-24 sm:w-40 shrink-0"
+                        : "flex-1 min-w-[200px]"
+                    }`}
+                  >
+                    <VideoElement
+                      stream={feed.stream}
+                      muted={feed.label.includes("(You)")}
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute bottom-1 left-2 text-[10px] text-white bg-black/50 px-1.5 py-0.5 rounded">
+                      {feed.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Participants + Chat sidebar */}
+        {/* Participants sidebar / main area */}
         <div
           className={`${
-            activeScreen ? "w-64 border-l" : "flex-1"
+            hasVideo ? "w-full sm:w-56 border-t sm:border-t-0 sm:border-l shrink-0" : "flex-1"
           } flex flex-col`}
         >
           <div
-            className={`flex-1 flex items-center justify-center p-4 ${
-              activeScreen ? "overflow-y-auto" : ""
-            }`}
+            className={`flex-1 flex items-center justify-center p-3 sm:p-4 overflow-y-auto`}
           >
             <div
-              className={`flex flex-wrap gap-3 justify-center ${
-                activeScreen ? "flex-col items-center" : ""
+              className={`flex flex-wrap gap-2 sm:gap-3 justify-center ${
+                hasVideo ? "sm:flex-col sm:items-center" : ""
               }`}
             >
               <ParticipantCard
@@ -159,31 +188,25 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
                 isMuted={muted}
                 isSpeaking={localSpeaking}
                 level={localLevel}
-                compact={!!activeScreen}
+                compact={hasVideo}
               />
 
               {Array.from(peers.entries()).map(([peerId, peer]) => (
-                <PeerAudio
-                  key={peerId}
-                  peer={peer}
-                  compact={!!activeScreen}
-                />
+                <PeerAudio key={peerId} peer={peer} compact={hasVideo} />
               ))}
 
               {aiActiveInRoom && (
                 <div
-                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border border-primary/50 bg-card ${
-                    activeScreen ? "w-full" : "w-[130px]"
-                  }`}
+                  className={`flex ${
+                    hasVideo ? "items-center gap-2 px-3 py-2 w-full" : "flex-col items-center gap-2 p-4 w-[120px]"
+                  } rounded-xl border border-primary/50 bg-card`}
                 >
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 animate-pulse">
-                    <span className="text-xl">🤖</span>
+                  <div className={`flex items-center justify-center ${hasVideo ? "w-8 h-8" : "w-10 h-10"} rounded-full bg-primary/10 animate-pulse shrink-0`}>
+                    <span className={hasVideo ? "text-base" : "text-xl"}>🤖</span>
                   </div>
                   <span className="text-xs font-medium">AI Agent</span>
                   {aiActive && aiStatus && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {aiStatus}
-                    </span>
+                    <span className="text-[10px] text-muted-foreground">{aiStatus}</span>
                   )}
                 </div>
               )}
@@ -193,7 +216,7 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
 
         {/* Chat panel */}
         {chatOpen && (
-          <div className="absolute bottom-24 right-4 z-40">
+          <div className="absolute bottom-28 right-2 sm:right-4 z-40">
             <Chat
               messages={chatMessages}
               myPeerId={myPeerId}
@@ -207,13 +230,15 @@ export function Room({ roomId, displayName, onLeave }: RoomProps) {
       {/* Controls */}
       <Controls
         muted={muted}
+        cameraOn={cameraOn}
         aiActive={aiActive}
         aiActiveInRoom={aiActiveInRoom}
         aiStatus={aiStatus}
         isScreenSharing={!!screenStream}
         chatOpen={chatOpen}
         onToggleMute={toggleMute}
-        onToggleAi={handleToggleAi}
+        onToggleCamera={toggleCamera}
+        onToggleAi={() => (aiActive ? stopAi() : startAi())}
         onToggleScreenShare={() =>
           screenStream ? stopScreenShare() : startScreenShare()
         }
@@ -233,6 +258,7 @@ function PeerAudio({
   peer: {
     displayName: string;
     stream: MediaStream | null;
+    videoStream: MediaStream | null;
     screenStream: MediaStream | null;
     connectionState: string;
   };
@@ -261,21 +287,30 @@ function PeerAudio({
   );
 }
 
-function ScreenVideo({ stream }: { stream: MediaStream }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+function VideoElement({
+  stream,
+  muted,
+  className,
+}: {
+  stream: MediaStream;
+  muted?: boolean;
+  className?: string;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
+    if (ref.current) {
+      ref.current.srcObject = stream;
     }
   }, [stream]);
 
   return (
     <video
-      ref={videoRef}
+      ref={ref}
       autoPlay
       playsInline
-      className="max-w-full max-h-full rounded-lg"
+      muted={muted}
+      className={className}
     />
   );
 }

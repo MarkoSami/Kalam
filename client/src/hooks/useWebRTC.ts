@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSignaling, type SignalingMessage } from "./useSignaling";
-import { playJoinSound, playLeaveSound } from "@/lib/sounds";
+import { playJoinSound, playLeaveSound, playMessageSound } from "@/lib/sounds";
 
 export type ChatMessage = {
   id: string;
@@ -19,6 +19,7 @@ export type EmojiReaction = {
 export type PeerState = {
   displayName: string;
   stream: MediaStream | null;
+  videoStream: MediaStream | null;
   screenStream: MediaStream | null;
   connectionState: string;
 };
@@ -62,8 +63,11 @@ export function useWebRTC(roomId: string, displayName: string) {
   const [aiActiveInRoom, setAiActiveInRoom] = useState(false);
   const [aiActivatedBy, setAiActivatedBy] = useState<string | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraOn, setCameraOn] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
+  const cameraSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -115,6 +119,7 @@ export function useWebRTC(roomId: string, displayName: string) {
             timestamp: Date.now(),
           },
         ]);
+        playMessageSound();
         break;
       case "emoji": {
         const reaction: EmojiReaction = {
@@ -236,21 +241,27 @@ export function useWebRTC(roomId: string, displayName: string) {
     pc.ontrack = (event) => {
       const track = event.track;
       const [remoteStream] = event.streams;
-      console.log(`[WebRTC] Got ${track.kind} track from ${peerId}`);
+      console.log(`[WebRTC] Got ${track.kind} track from ${peerId}, streamId: ${remoteStream?.id}`);
 
       setPeers((prev) => {
         const next = new Map(prev);
         const existing = next.get(peerId);
         if (!existing) {
-          // Peer not in state yet — create entry
           next.set(peerId, {
             displayName: "Peer",
             stream: track.kind === "audio" ? remoteStream : null,
+            videoStream: null,
             screenStream: track.kind === "video" ? remoteStream : null,
             connectionState: pc.connectionState,
           });
         } else if (track.kind === "video") {
-          next.set(peerId, { ...existing, screenStream: remoteStream });
+          // If peer already has a video stream, this is likely screen share
+          // First video = camera, second video = screen share
+          if (!existing.videoStream) {
+            next.set(peerId, { ...existing, videoStream: remoteStream });
+          } else {
+            next.set(peerId, { ...existing, screenStream: remoteStream });
+          }
         } else {
           next.set(peerId, { ...existing, stream: remoteStream });
         }
@@ -262,7 +273,11 @@ export function useWebRTC(roomId: string, displayName: string) {
           setPeers((prev) => {
             const next = new Map(prev);
             const existing = next.get(peerId);
-            if (existing) {
+            if (!existing) return next;
+            // Remove whichever video stream matches
+            if (existing.videoStream?.id === remoteStream?.id) {
+              next.set(peerId, { ...existing, videoStream: null });
+            } else {
               next.set(peerId, { ...existing, screenStream: null });
             }
             return next;
@@ -329,6 +344,7 @@ export function useWebRTC(roomId: string, displayName: string) {
         next.set(peer.peerId, {
           displayName: peer.displayName,
           stream: null,
+          videoStream: null,
           screenStream: null,
           connectionState: "new",
         });
@@ -362,6 +378,7 @@ export function useWebRTC(roomId: string, displayName: string) {
       next.set(peerId, {
         displayName: name,
         stream: null,
+        videoStream: null,
         screenStream: null,
         connectionState: "new",
       });
@@ -422,6 +439,7 @@ export function useWebRTC(roomId: string, displayName: string) {
         next.set(fromPeerId, {
           displayName: "Peer",
           stream: null,
+          videoStream: null,
           screenStream: null,
           connectionState: "new",
         });
@@ -516,6 +534,46 @@ export function useWebRTC(roomId: string, displayName: string) {
     setAiActivatedBy(null);
   }, []);
 
+  const toggleCamera = useCallback(async () => {
+    if (cameraOn && cameraStream) {
+      // Stop camera
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(null);
+      setCameraOn(false);
+
+      cameraSendersRef.current.forEach((sender, peerId) => {
+        const pc = connectionsRef.current.get(peerId);
+        if (pc) {
+          try { pc.removeTrack(sender); } catch {}
+        }
+      });
+      cameraSendersRef.current.clear();
+    } else {
+      // Start camera
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false,
+        });
+        setCameraStream(stream);
+        setCameraOn(true);
+
+        const videoTrack = stream.getVideoTracks()[0];
+        connectionsRef.current.forEach((pc, peerId) => {
+          const sender = pc.addTrack(videoTrack, stream);
+          cameraSendersRef.current.set(peerId, sender);
+        });
+
+        videoTrack.onended = () => {
+          setCameraStream(null);
+          setCameraOn(false);
+        };
+      } catch (err) {
+        console.error("[WebRTC] Camera failed:", err);
+      }
+    }
+  }, [cameraOn, cameraStream]);
+
   const startScreenShare = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -608,9 +666,12 @@ export function useWebRTC(roomId: string, displayName: string) {
     aiActiveInRoom,
     aiActivatedBy,
     screenStream,
+    cameraStream,
+    cameraOn,
     chatMessages,
     emojiReactions,
     toggleMute,
+    toggleCamera,
     replaceOutgoingTrack,
     restoreOriginalTrack,
     broadcastAiStarted,
