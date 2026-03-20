@@ -73,17 +73,34 @@ export function useWebRTC(
   const [muted, setMuted] = useState(false);
   const [myPeerId, setMyPeerId] = useState<string | null>(null);
   const [aiActiveInRoom, setAiActiveInRoom] = useState(false);
-  const [aiActivatedBy, setAiActivatedBy] = useState<string | null>(null);
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [aiActivatedBy, _setAiActivatedBy] = useState<string | null>(null);
+  const [screenStream, _setScreenStream] = useState<MediaStream | null>(null);
+  const [cameraStream, _setCameraStream] = useState<MediaStream | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
   const [raisedHands, setRaisedHands] = useState<Set<string>>(new Set());
   const [cameraQuality, setCameraQuality] = useState<VideoQuality>("medium");
   const [screenQuality, setScreenQuality] = useState<VideoQuality>("high");
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const cameraSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
+  // Keep refs in sync with state
+  const setAiActivatedBySynced = (v: string | null) => {
+    aiActivatedByRef.current = v;
+    _setAiActivatedBy(v);
+  };
+  const setCameraStreamSynced = (s: MediaStream | null) => {
+    cameraStreamRef.current = s;
+    _setCameraStream(s);
+  };
+  const setScreenStreamSynced = (s: MediaStream | null) => {
+    screenStreamRef.current = s;
+    _setScreenStream(s);
+  };
+
+  const aiActivatedByRef = useRef<string | null>(null);
   const connectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
@@ -117,11 +134,11 @@ export function useWebRTC(
         break;
       case "ai-started":
         setAiActiveInRoom(true);
-        setAiActivatedBy(msg.peerId as string);
+        setAiActivatedBySynced(msg.peerId as string);
         break;
       case "ai-stopped":
         setAiActiveInRoom(false);
-        setAiActivatedBy(null);
+        setAiActivatedBySynced(null);
         break;
       case "chat":
         setChatMessages((prev) => [
@@ -136,6 +153,13 @@ export function useWebRTC(
         ]);
         playMessageSound();
         break;
+      case "sync-state": {
+        if (msg.aiActive) {
+          setAiActiveInRoom(true);
+          setAiActivatedBySynced(msg.aiActivatedBy as string);
+        }
+        break;
+      }
       case "camera-off": {
         const camOffPeerId = msg.peerId as string;
         console.log(`[WebRTC] Peer ${camOffPeerId} turned off camera`);
@@ -264,10 +288,31 @@ export function useWebRTC(
     const pc = new RTCPeerConnection(ICE_SERVERS);
     connectionsRef.current.set(peerId, pc);
 
+    // Add mic
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current!);
       });
+    }
+
+    // Add camera if active
+    const camStream = cameraStreamRef.current;
+    if (camStream) {
+      const videoTrack = camStream.getVideoTracks()[0];
+      if (videoTrack && videoTrack.readyState === "live") {
+        const sender = pc.addTrack(videoTrack, camStream);
+        cameraSendersRef.current.set(peerId, sender);
+      }
+    }
+
+    // Add screen share if active
+    const scrStream = screenStreamRef.current;
+    if (scrStream) {
+      const videoTrack = scrStream.getVideoTracks()[0];
+      if (videoTrack && videoTrack.readyState === "live") {
+        const sender = pc.addTrack(videoTrack, scrStream);
+        screenSendersRef.current.set(peerId, sender);
+      }
     }
 
     pc.onicecandidate = (event) => {
@@ -433,6 +478,16 @@ export function useWebRTC(
       return next;
     });
 
+    // Sync AI state to newcomer (camera/screen tracks auto-added in createPeerConnection)
+    if (aiActivatedByRef.current) {
+      sendRef.current({
+        type: "sync-state",
+        targetPeerId: peerId,
+        aiActive: true,
+        aiActivatedBy: aiActivatedByRef.current,
+      });
+    }
+
     playJoinSound();
   }
 
@@ -456,7 +511,7 @@ export function useWebRTC(
 
     if (aiActivatedBy === peerId) {
       setAiActiveInRoom(false);
-      setAiActivatedBy(null);
+      setAiActivatedBySynced(null);
     }
   }
 
@@ -607,7 +662,7 @@ export function useWebRTC(
       });
       // Stop old camera tracks
       cameraStream.getTracks().forEach((t) => t.stop());
-      setCameraStream(stream);
+      setCameraStreamSynced(stream);
 
       const newTrack = stream.getVideoTracks()[0];
       cameraSendersRef.current.forEach((sender) => {
@@ -642,20 +697,20 @@ export function useWebRTC(
     if (!myPeerIdRef.current) return;
     sendRef.current({ type: "ai-started", peerId: myPeerIdRef.current });
     setAiActiveInRoom(true);
-    setAiActivatedBy(myPeerIdRef.current);
+    setAiActivatedBySynced(myPeerIdRef.current);
   }, []);
 
   const broadcastAiStopped = useCallback(() => {
     sendRef.current({ type: "ai-stopped" });
     setAiActiveInRoom(false);
-    setAiActivatedBy(null);
+    setAiActivatedBySynced(null);
   }, []);
 
   const toggleCamera = useCallback(async () => {
     if (cameraOn && cameraStream) {
       // Stop camera
       cameraStream.getTracks().forEach((t) => t.stop());
-      setCameraStream(null);
+      setCameraStreamSynced(null);
       setCameraOn(false);
 
       // Replace video senders with null track (no renegotiation)
@@ -686,7 +741,7 @@ export function useWebRTC(
           },
           audio: false,
         });
-        setCameraStream(stream);
+        setCameraStreamSynced(stream);
         setCameraOn(true);
         playStreamSound();
 
@@ -700,7 +755,7 @@ export function useWebRTC(
         setTimeout(() => applyVideoBitrate(preset.maxBitrate), 500);
 
         videoTrack.onended = () => {
-          setCameraStream(null);
+          setCameraStreamSynced(null);
           setCameraOn(false);
         };
       } catch (err) {
@@ -727,7 +782,7 @@ export function useWebRTC(
         videoTrack.contentHint = "detail";
       }
 
-      setScreenStream(stream);
+      setScreenStreamSynced(stream);
       playStreamSound();
 
       connectionsRef.current.forEach((pc, peerId) => {
@@ -748,7 +803,7 @@ export function useWebRTC(
 
   const stopScreenShare = useCallback(() => {
     screenStream?.getTracks().forEach((t) => t.stop());
-    setScreenStream(null);
+    setScreenStreamSynced(null);
 
     screenSendersRef.current.forEach((sender, peerId) => {
       const pc = connectionsRef.current.get(peerId);
@@ -815,7 +870,7 @@ export function useWebRTC(
         audio: false,
       });
       cameraStream.getTracks().forEach((t) => t.stop());
-      setCameraStream(stream);
+      setCameraStreamSynced(stream);
 
       const newTrack = stream.getVideoTracks()[0];
       cameraSendersRef.current.forEach((sender) => {

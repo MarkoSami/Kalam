@@ -62,6 +62,7 @@ async function start() {
         case "offer":
         case "answer":
         case "ice-candidate":
+        case "sync-state":
           relay(
             socket,
             msg as {
