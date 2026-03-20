@@ -2,16 +2,17 @@ import { Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DeviceInfo } from "@/hooks/useDevices";
 
-export type VideoQuality = "low" | "medium" | "high" | "hd";
+export type VideoQuality = "low" | "medium" | "high" | "hd" | "source";
 
 export const VIDEO_QUALITY_PRESETS: Record<
   VideoQuality,
-  { width: number; height: number; frameRate: number; label: string }
+  { width: number; height: number; frameRate: number; maxBitrate: number; label: string }
 > = {
-  low: { width: 320, height: 240, frameRate: 15, label: "Low (320x240 15fps)" },
-  medium: { width: 640, height: 480, frameRate: 24, label: "Medium (640x480 24fps)" },
-  high: { width: 1280, height: 720, frameRate: 30, label: "HD (720p 30fps)" },
-  hd: { width: 1920, height: 1080, frameRate: 30, label: "Full HD (1080p 30fps)" },
+  low: { width: 640, height: 480, frameRate: 15, maxBitrate: 500_000, label: "Low (480p 15fps)" },
+  medium: { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_500_000, label: "HD (720p 30fps)" },
+  high: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 6_000_000, label: "Full HD (1080p 30fps)" },
+  hd: { width: 1920, height: 1080, frameRate: 60, maxBitrate: 8_000_000, label: "Full HD (1080p 60fps)" },
+  source: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 15_000_000, label: "Source (4K 60fps)" },
 };
 
 type DeviceSettingsProps = {

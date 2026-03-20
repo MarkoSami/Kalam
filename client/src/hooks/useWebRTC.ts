@@ -549,6 +549,27 @@ export function useWebRTC(
     }
   }, []);
 
+  // Set max bitrate on all video senders
+  const applyVideoBitrate = useCallback((maxBitrate: number) => {
+    const allSenders = [
+      ...cameraSendersRef.current.values(),
+      ...screenSendersRef.current.values(),
+    ];
+    allSenders.forEach(async (sender) => {
+      if (sender.track?.kind !== "video") return;
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = maxBitrate;
+      try {
+        await sender.setParameters(params);
+      } catch (e) {
+        console.warn("[WebRTC] Failed to set bitrate:", e);
+      }
+    });
+  }, []);
+
   const switchMic = useCallback(async (deviceId: string) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -657,9 +678,9 @@ export function useWebRTC(
         const preset = VIDEO_QUALITY_PRESETS[videoQuality];
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: preset.width },
-            height: { ideal: preset.height },
-            frameRate: { ideal: preset.frameRate },
+            width: { min: 640, ideal: preset.width },
+            height: { min: 480, ideal: preset.height },
+            frameRate: { min: 15, ideal: preset.frameRate },
             ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : { facingMode: "user" }),
           },
           audio: false,
@@ -673,6 +694,9 @@ export function useWebRTC(
           const sender = pc.addTrack(videoTrack, stream);
           cameraSendersRef.current.set(peerId, sender);
         });
+
+        // Apply bitrate
+        setTimeout(() => applyVideoBitrate(preset.maxBitrate), 500);
 
         videoTrack.onended = () => {
           setCameraStream(null);
@@ -695,14 +719,23 @@ export function useWebRTC(
         },
         audio: false,
       });
+
+      // Apply content hint for screen sharing (tells encoder to prioritize sharpness)
+      const videoTrack = stream.getVideoTracks()[0];
+      if ("contentHint" in videoTrack) {
+        videoTrack.contentHint = "detail";
+      }
+
       setScreenStream(stream);
       playStreamSound();
 
-      const videoTrack = stream.getVideoTracks()[0];
       connectionsRef.current.forEach((pc, peerId) => {
         const sender = pc.addTrack(videoTrack, stream);
         screenSendersRef.current.set(peerId, sender);
       });
+
+      // Apply high bitrate for screen share
+      setTimeout(() => applyVideoBitrate(preset.maxBitrate), 500);
 
       videoTrack.onended = () => {
         stopScreenShare();
@@ -710,7 +743,7 @@ export function useWebRTC(
     } catch (err) {
       console.error("[WebRTC] Screen share failed:", err);
     }
-  }, []);
+  }, [applyVideoBitrate]);
 
   const stopScreenShare = useCallback(() => {
     screenStream?.getTracks().forEach((t) => t.stop());
@@ -773,9 +806,9 @@ export function useWebRTC(
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: preset.width },
-          height: { ideal: preset.height },
-          frameRate: { ideal: preset.frameRate },
+          width: { min: 640, ideal: preset.width },
+          height: { min: 480, ideal: preset.height },
+          frameRate: { min: 15, ideal: preset.frameRate },
           ...(cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : { facingMode: "user" }),
         },
         audio: false,
@@ -787,6 +820,9 @@ export function useWebRTC(
       cameraSendersRef.current.forEach((sender) => {
         sender.replaceTrack(newTrack);
       });
+
+      // Apply new bitrate
+      setTimeout(() => applyVideoBitrate(preset.maxBitrate), 500);
     } catch (err) {
       console.error("[WebRTC] Failed to change quality:", err);
     }
